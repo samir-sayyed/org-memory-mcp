@@ -12,17 +12,22 @@ This project is designed to run as **one local MCP process per developer machine
 
 ## Quick Start
 
-```bash
-# 1. Clone and build
-git clone https://github.com/samir-sayyed/org-memory-mcp.git
-cd org-memory-mcp
-npm install && npm run build
+No installation required — your MCP client launches it on demand via `npx`:
 
-# 2. Add to your MCP client config (see "Client Setup" section below)
-#    with your AWS credentials and MEMORY_ARN
-
-# 3. Reload your MCP client — the server starts automatically
+```json
+{
+  "command": "npx",
+  "args": ["-y", "org-memory-mcp"],
+  "env": {
+    "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
+    "ORG_ID": "your-org",
+    "ACTOR_ID": "you@company.com"
+  }
+}
 ```
+
+1. Add the config above to your MCP client (see [Client Setup](#client-setup) for per-client file locations)
+2. Reload your MCP client — done
 
 The server requires no running process of its own — your MCP client launches it on demand.
 
@@ -107,8 +112,9 @@ AWS Bedrock AgentCore Memory
 
 ### Prerequisites
 
-1. **AWS account** with access to AWS Bedrock AgentCore (currently `us-west-2` or `us-east-1`)
-2. **An AgentCore Memory resource** — create one in the AWS Console or via CLI:
+1. **Node.js ≥ 18** (for `npx`)
+2. **AWS account** with access to AWS Bedrock AgentCore (currently `us-west-2` or `us-east-1`)
+3. **An AgentCore Memory resource** — create one in the AWS Console or via CLI:
 
 ```bash
 aws bedrock-agentcore create-memory \
@@ -118,20 +124,13 @@ aws bedrock-agentcore create-memory \
 
 Copy the returned ARN — this is your `MEMORY_ARN`.
 
-3. **IAM permissions** — see the [AWS IAM Permissions](#aws-iam-permissions-required) section below.
+4. **IAM permissions** — see the [AWS IAM Permissions](#aws-iam-permissions-required) section below.
 
-### 1. Clone and Build
+### No Installation Needed
 
-```bash
-git clone https://github.com/samir-sayyed/org-memory-mcp.git
-cd org-memory-mcp
-npm install
-npm run build
-```
+The package is published to npm as `org-memory-mcp`. Your MCP client runs it automatically via `npx -y org-memory-mcp` — no clone, no build, no global install.
 
-The server binary is at `build/index.js` inside the cloned directory.
-
-### 2. Configure Environment Variables
+### Environment Variables Reference
 
 The server reads config from environment variables injected by your MCP client — no `.env` file needed at runtime.
 
@@ -145,7 +144,7 @@ The server reads config from environment variables injected by your MCP client �
 | `AWS_SECRET_ACCESS_KEY` | optional | Only needed if not using IAM roles or AWS SSO |
 | `SESSION_ID` | optional | Pinned session name; auto-generated as `coding-YYYYMMDD-HHMMSS-XXXX` when omitted |
 
-### 3. Configure Memory Strategies
+### Configure Memory Strategies
 
 For automatic long-term extraction to work, your AgentCore Memory resource must have strategies configured. Create or update your memory with:
 
@@ -163,8 +162,6 @@ control_client.create_memory(
 
 ## Client Setup
 
-Replace `/path/to/org-memory-mcp` with the actual path where you cloned the repo.
-
 ### GitHub Copilot (VS Code)
 
 Edit `~/Library/Application Support/Code/User/mcp.json` (macOS) or `%APPDATA%\Code\User\mcp.json` (Windows):
@@ -174,8 +171,8 @@ Edit `~/Library/Application Support/Code/User/mcp.json` (macOS) or `%APPDATA%\Co
   "servers": {
     "org-memory": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "org-memory-mcp"],
       "env": {
         "AWS_REGION": "us-west-2",
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
@@ -196,8 +193,8 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
 {
   "mcpServers": {
     "org-memory": {
-      "command": "node",
-      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "org-memory-mcp"],
       "env": {
         "AWS_REGION": "us-west-2",
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
@@ -220,8 +217,8 @@ Edit `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "org-memory": {
-      "command": "node",
-      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "org-memory-mcp"],
       "env": {
         "AWS_REGION": "us-west-2",
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
@@ -242,8 +239,8 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "org-memory": {
-      "command": "node",
-      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "org-memory-mcp"],
       "env": {
         "AWS_REGION": "us-west-2",
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
