@@ -5,7 +5,7 @@
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "org-memory-mcp": "./build/index.js"
+    "org-memory-mcp": "build/index.js"
   },
   "files": [
     "build/",
@@ -42,7 +42,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/samir-sayyed/org-memory-mcp.git"
+    "url": "git+https://github.com/samir-sayyed/org-memory-mcp.git"
   },
   "homepage": "https://github.com/samir-sayyed/org-memory-mcp#readme",
   "bugs": {
