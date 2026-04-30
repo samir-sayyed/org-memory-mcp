@@ -4,17 +4,17 @@ An MCP (Model Context Protocol) server that provides **org-wide persisted memory
 
 ## Deployment Model
 
-This project is designed to run as **one local MCP process per developer machine**, backed by **AWS Bedrock AgentCore Memory**.
+This project is designed to run locally on developer machines, backed by **AWS Bedrock AgentCore Memory**.
 
-- Each developer runs their own wrapper locally.
-- Multiple AI clients on that same machine (Copilot, Cursor, Cline) share the one local process.
-- Multiple developers can point their local wrappers at the same `MEMORY_ARN` to share one AgentCore-backed memory space.
+- MCP clients typically launch their own local stdio wrapper via `npx`.
+- Multiple AI clients on the same machine can point those local processes at the same `MEMORY_ARN` to share one AgentCore-backed memory space.
+- Multiple developers can point their local wrappers at the same `MEMORY_ARN` when they intentionally want shared memory.
 - This repo is **not** a hosted multi-user web service; the shared trust boundary is the AWS memory resource and its IAM policy.
 - `ACTOR_ID`, `SESSION_ID`, and namespace paths are used for attribution and retrieval, not as local authorization boundaries.
 
 ## Quick Start
 
-No installation required — your MCP client launches it on demand via `npx`:
+No installation required — your MCP client launches a local server process on demand via `npx`:
 
 ```json
 {
@@ -132,11 +132,11 @@ Copy the returned ARN — this is your `MEMORY_ARN`.
 
 ### No Installation Needed
 
-The package is published to npm as `org-memory-mcp`. Your MCP client runs it automatically via `npx -y org-memory-mcp` — no clone, no build, no global install.
+The package is published to npm as `org-memory-mcp`. The intended runtime path is for your MCP client to launch it directly via `npx -y org-memory-mcp` — no clone, no build, no global install.
 
 ### Environment Variables Reference
 
-The server reads config from environment variables injected by your MCP client — no `.env` file needed at runtime.
+The server reads config from environment variables injected by your MCP client. When you use `npx`, put these values in the MCP client's `env` block — no `.env` file is needed at runtime.
 
 | Variable | Required | Description |
 |---|---|---|
@@ -146,7 +146,8 @@ The server reads config from environment variables injected by your MCP client �
 | `AWS_REGION` | optional | Defaults to `us-west-2` |
 | `AWS_ACCESS_KEY_ID` | optional | Only needed if not using IAM roles or AWS SSO |
 | `AWS_SECRET_ACCESS_KEY` | optional | Only needed if not using IAM roles or AWS SSO |
-| `SESSION_ID` | optional | Pinned session name; auto-generated as `coding-YYYYMMDD-HHMMSS-XXXX` when omitted |
+| `AWS_SESSION_TOKEN` | optional | Only needed when using temporary AWS credentials |
+| `SESSION_ID` | optional | Stable session name; auto-generated per server instance as `coding-YYYYMMDD-HHMMSS-XXXX` when omitted |
 
 ### Configure Memory Strategies
 
@@ -257,7 +258,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-> **Multi-client session isolation**: If you run multiple AI clients (e.g. Copilot + Cline + Cursor) simultaneously, set a distinct `SESSION_ID` for each one (`"copilot"`, `"cline"`, `"cursor"`). This keeps each client's short-term conversation history separate in AgentCore. Without it, all clients share the same auto-generated session ID.
+> **Multi-client session isolation**: Each MCP server instance generates a unique `SESSION_ID` automatically when `SESSION_ID` is omitted, so simultaneous clients do not collide by default. Set a distinct explicit `SESSION_ID` for each client (`"copilot"`, `"cline"`, `"cursor"`) if you want stable separation across restarts and clearer dashboard/debugging attribution.
 
 ## Usage Examples
 
@@ -306,9 +307,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 → Agent calls `memory_status`
 
-## Local Development Checks
+## Maintainer Development Checks
 
-Use these commands during local development:
+These commands are only for maintainers working on this repository itself:
 
 ```bash
 npm run lint
@@ -344,7 +345,7 @@ Check these first:
 - `ORG_ID`
 - `ACTOR_ID`
 
-Use `.env.example` in the repo root as the starting template.
+If you're running via `npx` from an MCP client, make sure those values are present in the client's `env` block.
 
 ### `Dashboard could not start because port 3001 is already in use`
 
@@ -387,12 +388,12 @@ The handlers now reject invalid inputs earlier than before. Common examples:
 
 Memories can be scoped at three levels:
 
-- **`user`** (default): Private to the individual developer
-- **`project`**: Shared with the project team
-- **`org`**: Shared company-wide as approved patterns
+- **`user`** (default): Actor-scoped namespace for developer-specific manual saves
+- **`project`**: Project-shared namespace for team memories
+- **`org`**: Org-shared namespace for approved patterns
 
 When searching with `scope: "all"`, the agent retrieves from:
-1. Your private memories
+1. Your actor-scoped manual memories
 2. Project memories (if project specified)
 3. Org-wide shared memories
 4. Auto-extracted strategy records
