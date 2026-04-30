@@ -1,7 +1,7 @@
 {
   "name": "org-memory-mcp",
   "version": "1.0.0",
-  "description": "Org-wide persisted memory layer for AI coding agents via AWS Bedrock AgentCore",
+  "description": "Org-wide persisted memory for AI coding agents via AWS Bedrock AgentCore. MCP server with short-term session events, long-term semantic search, and user/project/org namespaces.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -11,8 +11,11 @@
     "build/",
     "README.md"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
-    "build": "tsc && cp -r src/visualizer build/visualizer && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && rm -rf build/visualizer && cp -r src/visualizer build/visualizer && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "dev": "nodemon --exec ts-node --esm src/index.ts",
     "start": "node build/index.js",
     "lint": "tsc --noEmit",
@@ -20,9 +23,31 @@
     "visualize": "node --loader ts-node/esm src/visualize.ts",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["mcp", "memory", "aws", "bedrock", "agentcore", "coding-agent"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "memory",
+    "aws",
+    "bedrock",
+    "agentcore",
+    "bedrock-agentcore",
+    "coding-agent",
+    "ai-memory",
+    "cursor",
+    "cline",
+    "copilot"
+  ],
+  "author": "Samir Sayyed",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samir-sayyed/org-memory-mcp.git"
+  },
+  "homepage": "https://github.com/samir-sayyed/org-memory-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/samir-sayyed/org-memory-mcp/issues"
+  },
   "dependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^1.0.0",
     "@aws-sdk/client-bedrock-agentcore": "^1.0.0",

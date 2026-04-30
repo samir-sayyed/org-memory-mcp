@@ -1,0 +1,13 @@
+# Source maps — not needed by consumers
+**/*.map
+
+# Dev / source files
+src/
+tests/
+tsconfig.json
+.env
+.env.*
+.gitignore
+
+# Build tools
+nodemon.json
