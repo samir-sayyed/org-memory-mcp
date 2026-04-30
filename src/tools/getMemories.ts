@@ -15,8 +15,8 @@ export function getMemoriesTool(client: BedrockMemoryClient) {
   return {
     name: GET_MEMORIES_TOOL_NAME,
     description:
-      'List all memories with optional filtering by scope, project, memory type, or tags. ' +
-      'Use this to browse memories when you do not have a specific search query.',
+      'Browse long-term memory records with optional filtering by scope, project, memory type, or tags. ' +
+      'Use this advanced tool when you need record browsing rather than semantic search.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -24,7 +24,7 @@ export function getMemoriesTool(client: BedrockMemoryClient) {
           type: 'string',
           enum: ['user', 'project', 'org', 'all'],
           default: 'all',
-          description: 'Which memories to list',
+          description: 'Which namespace-scoped memories to list',
         },
         project: {
           type: 'string',

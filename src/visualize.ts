@@ -20,9 +20,9 @@ import { loadConfig } from './utils/config.js';
 import { initSession, getActiveSessionId } from './utils/session.js';
 import {
   getUserNamespace,
+  getOrgRootNamespace,
   getOrgSharedNamespace,
   getStrategyNamespacePath,
-  getProjectNamespace,
 } from './utils/namespaces.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -94,7 +94,20 @@ function enrichRecord(r: any): EnrichedMemory {
     createdAt;
 
   const tagsRaw = meta['tags']?.stringValue || '';
-  const tags = tagsRaw ? tagsRaw.split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+  let tags: string[] = [];
+  if (tagsRaw) {
+    try {
+      const parsed = JSON.parse(tagsRaw);
+      if (Array.isArray(parsed)) {
+        tags = parsed
+          .filter((tag): tag is string => typeof tag === 'string')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      tags = tagsRaw.split(',').map((tag: string) => tag.trim()).filter(Boolean);
+    }
+  }
 
   return {
     memoryId: r.memoryRecordId || '',
@@ -115,25 +128,16 @@ function enrichRecord(r: any): EnrichedMemory {
 }
 
 async function fetchAllMemories(): Promise<EnrichedMemory[]> {
-  const userNs = getUserNamespace(config);
-  const orgNs = getOrgSharedNamespace(config);
-  const titanNs = getProjectNamespace(config, 'titan');
-
-  let userRecords: any[] = [];
-  let orgRecords: any[] = [];
-  let titanRecords: any[] = [];
+  const orgRootNs = getOrgRootNamespace(config);
+  let manualRecords: any[] = [];
 
   try {
-    [userRecords, orgRecords, titanRecords] = await Promise.all([
-      client.listMemoryRecords(userNs).catch(() => []),
-      client.listMemoryRecords(orgNs).catch(() => []),
-      client.listMemoryRecords(titanNs).catch(() => []),
-    ]);
+    manualRecords = await client.listMemoryRecordsByPath(orgRootNs).catch(() => []);
   } catch (error: any) {
     throw new Error(`Failed to load memories from Bedrock AgentCore: ${error.message}`);
   }
 
-  const allRecords = [...userRecords, ...orgRecords, ...titanRecords];
+  const allRecords = manualRecords;
 
   // Deduplicate by memoryId
   const seen = new Set<string>();
@@ -163,7 +167,7 @@ async function fetchStrategyMemories(): Promise<EnrichedMemory[]> {
 
 async function fetchSessionEvents(): Promise<any[]> {
   const currentSessionId = getActiveSessionId();
-  const sessionIds = [currentSessionId, 'session-demo-titan-1', 'session-demo-python-1', 'session-demo-ui-1'];
+  const sessionIds = [currentSessionId];
   
   let allEvents: any[] = [];
   
@@ -256,8 +260,6 @@ async function fetchStatus(): Promise<any> {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
-
-  res.setHeader('Access-Control-Allow-Origin', '*');
 
   if (url.pathname === '/api/memories') {
     try {

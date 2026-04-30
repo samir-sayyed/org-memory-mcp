@@ -4,11 +4,13 @@ An MCP (Model Context Protocol) server that provides **org-wide persisted memory
 
 ## Deployment Model
 
-This project is designed to run as **one local MCP process per developer machine**.
+This project is designed to run as **one local MCP process per developer machine**, backed by **AWS Bedrock AgentCore Memory**.
 
-- Each developer runs their own instance locally.
-- Multiple AI clients on that same machine (Copilot, Cursor, Cline) share the one process.
-- It is **not** a shared hosted multi-user service — each developer has their own isolated memory store.
+- Each developer runs their own wrapper locally.
+- Multiple AI clients on that same machine (Copilot, Cursor, Cline) share the one local process.
+- Multiple developers can point their local wrappers at the same `MEMORY_ARN` to share one AgentCore-backed memory space.
+- This repo is **not** a hosted multi-user web service; the shared trust boundary is the AWS memory resource and its IAM policy.
+- `ACTOR_ID`, `SESSION_ID`, and namespace paths are used for attribution and retrieval, not as local authorization boundaries.
 
 ## Quick Start
 
@@ -71,13 +73,13 @@ AWS Bedrock AgentCore Memory
 1. **save_conversation** → Stores conversation as short-term events via `CreateEvent`
 2. **AgentCore auto-extracts** → Built-in strategies run in the background, extracting facts, preferences, and summaries into long-term memory
 3. **retrieve_context** → Queries both short-term session history and long-term extracted insights
-4. **add_memory** → Direct manual write to long-term memory (bypasses extraction pipeline)
+4. **create_memory** → Direct manual write to long-term memory for deterministic saves (bypasses extraction pipeline)
 5. **search_memories** → Semantic search across both manually saved and auto-extracted records
 
 ### Namespace Hierarchy
 
 ```
-/org/{orgId}/user/{actorId}/      → Private developer memories (manual)
+/org/{orgId}/user/{actorId}/      → Actor-scoped developer memories (manual)
 /org/{orgId}/project/{projectId}/ → Project-scoped team memories (manual)
 /org/{orgId}/shared/              → Org-wide approved patterns (manual)
 /strategy/{strategyId}/...        → Auto-extracted by AgentCore strategies
@@ -89,15 +91,17 @@ AWS Bedrock AgentCore Memory
 |------|------|-------------|
 | `save_conversation` | **Primary** | Store conversation turns → AgentCore auto-extracts insights |
 | `retrieve_context` | **Primary** | Get combined short-term session + long-term context |
-| `add_memory` | Manual | Direct write to long-term memory (explicit saves only) |
+| `create_memory` | Manual | Direct write to long-term memory for explicit deterministic saves |
 | `search_memories` | Query | Semantic search across all memory types |
-| `get_memories` | Query | List/filter long-term memory records |
-| `get_memory` | Query | Retrieve a single memory by ID |
-| `update_memory` | CRUD | Update existing memory content/metadata |
-| `delete_memory` | CRUD | Remove a memory by ID |
-| `get_user_profile` | Profile | Developer preferences (manual + auto-extracted), stats |
+| `get_memories` | Advanced | Browse/filter long-term memory records when you do not have a search query |
+| `get_memory` | Advanced | Retrieve a single memory by ID |
+| `update_memory` | Advanced | Update existing shared memory content/metadata |
+| `delete_memory` | Advanced | Remove a shared memory record by ID |
+| `get_user_profile` | Derived | Actor summary from shared memory; convenience view, not a privacy boundary |
 | `memory_status` | Diagnostic | Session info, memory counts, system health |
 | `launch_dashboard` | UI | Launch the local memory dashboard |
+
+`add_memory` remains accepted as a backward-compatible alias, but new clients should use `create_memory`.
 
 ## Memory Types (Manual)
 
@@ -280,7 +284,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 "Remember that we use Zod for all API validation in the payment-api project"
 ```
-→ Agent calls `add_memory` with:
+→ Agent calls `create_memory` with:
 - `content`: "Use Zod for all API validation in payment-api"
 - `memory_type`: "architecture"
 - `scope`: "project"
@@ -373,7 +377,7 @@ If `save_conversation` works but no auto-extracted records show in `search_memor
 
 The handlers now reject invalid inputs earlier than before. Common examples:
 
-- `add_memory` requires non-empty `content` and a valid `memory_type`
+- `create_memory` requires non-empty `content` and a valid `memory_type` (`add_memory` still works as a legacy alias)
 - `search_memories` with `scope: "project"` requires `project`
 - `save_conversation` requires at least one message with valid `role` and `content`
 - `get_memories` rejects out-of-range `limit` values

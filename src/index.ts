@@ -10,13 +10,13 @@
  * Tools:
  *   save_conversation  — Primary: store conversation turns → auto-extraction
  *   retrieve_context   — Combined short-term + long-term context retrieval
- *   add_memory         — Manual: direct write to long-term memory
+ *   create_memory      — Manual: direct write to long-term memory
  *   search_memories    — Semantic search across all memory types
- *   get_memories       — List/filter long-term memory records
- *   get_memory         — Get single record by ID
- *   update_memory      — Update existing record
- *   delete_memory      — Delete a record
- *   get_user_profile   — Developer profile + stats
+ *   get_memories       — Advanced browse/filter for long-term memory records
+ *   get_memory         — Advanced record lookup by ID
+ *   update_memory      — Advanced shared-record update
+ *   delete_memory      — Advanced shared-record delete
+ *   get_user_profile   — Derived actor summary from shared memory
  *   memory_status      — Diagnostics and health check
  *   launch_dashboard   — Local dashboard UI
  */
@@ -34,7 +34,13 @@ import { ConfigError, formatConfigError, loadConfig } from './utils/config.js';
 import { initSession, getActiveSessionId } from './utils/session.js';
 import { BedrockMemoryClient } from './aws/bedrockAgentCore.js';
 
-import { ADD_MEMORY_TOOL_NAME, handleAddMemory } from './tools/addMemory.js';
+import {
+  ADD_MEMORY_TOOL_NAME,
+  CREATE_MEMORY_INPUT_SCHEMA,
+  CREATE_MEMORY_TOOL_DESCRIPTION,
+  CREATE_MEMORY_TOOL_NAME,
+  handleAddMemory,
+} from './tools/addMemory.js';
 import { SEARCH_MEMORIES_TOOL_NAME, handleSearchMemories } from './tools/searchMemories.js';
 import { GET_MEMORIES_TOOL_NAME, handleGetMemories } from './tools/getMemories.js';
 import { GET_MEMORY_TOOL_NAME, handleGetMemory } from './tools/getMemory.js';
@@ -58,6 +64,15 @@ class OrgMemoryMcpServer {
     return this._memoryClient;
   }
 
+  private closeMemoryClient() {
+    if (!this._memoryClient) {
+      return;
+    }
+
+    this._memoryClient.close();
+    this._memoryClient = null;
+  }
+
   constructor() {
     // Initialise session — no config required, auto-generates an ID if SESSION_ID is absent
     const sessionId = initSession(process.env.SESSION_ID);
@@ -66,7 +81,7 @@ class OrgMemoryMcpServer {
     this.server = new Server(
       {
         name: 'org-memory-mcp',
-        version: '1.1.0',
+        version: '1.0.2',
       },
       {
         capabilities: {
@@ -82,6 +97,7 @@ class OrgMemoryMcpServer {
   private setupErrorHandling() {
     this.server.onerror = (error) => console.error('[MCP Error]', error);
     process.on('SIGINT', async () => {
+      this.closeMemoryClient();
       await this.server.close();
       process.exit(0);
     });
@@ -181,49 +197,9 @@ class OrgMemoryMcpServer {
         },
         // ── Manual long-term memory CRUD ───────────────────────
         {
-          name: ADD_MEMORY_TOOL_NAME,
-          description:
-            'Directly save a fact or insight to long-term memory, bypassing the automatic extraction pipeline. ' +
-            'Use save_conversation instead for regular conversational data — AgentCore will auto-extract insights. ' +
-            'Use add_memory only for explicit manual saves like: architecture decisions, coding style preferences, ' +
-            'bug fix solutions, or project conventions that you want stored immediately. ' +
-            'Memories can be scoped to user (private), project (team-shared), or org (company-wide).',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              content: {
-                type: 'string',
-                description:
-                  'The memory content to store. Be concise but descriptive.',
-              },
-              memory_type: {
-                type: 'string',
-                enum: ['style', 'architecture', 'bugfix', 'api_pattern', 'preference', 'general'],
-                description: 'Category of the memory',
-              },
-              scope: {
-                type: 'string',
-                enum: ['user', 'project', 'org'],
-                default: 'user',
-                description:
-                  'Visibility scope: user=private, project=team-shared, org=company-wide',
-              },
-              project: {
-                type: 'string',
-                description: 'Project identifier (required when scope=project)',
-              },
-              language: {
-                type: 'string',
-                description: 'Programming language, e.g. "typescript"',
-              },
-              tags: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Optional tags, e.g. ["react", "best-practice"]',
-              },
-            },
-            required: ['content', 'memory_type'],
-          },
+          name: CREATE_MEMORY_TOOL_NAME,
+          description: CREATE_MEMORY_TOOL_DESCRIPTION,
+          inputSchema: CREATE_MEMORY_INPUT_SCHEMA,
         },
         {
           name: SEARCH_MEMORIES_TOOL_NAME,
@@ -270,7 +246,7 @@ class OrgMemoryMcpServer {
         {
           name: GET_MEMORIES_TOOL_NAME,
           description:
-            'List all memories with optional filtering. Use to browse when no specific search query exists.',
+            'Advanced browse tool for long-term memory records when no semantic query exists.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -299,7 +275,7 @@ class OrgMemoryMcpServer {
         },
         {
           name: GET_MEMORY_TOOL_NAME,
-          description: 'Retrieve a single memory record by its memoryId.',
+          description: 'Advanced lookup for a single memory record by its memoryId.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -313,7 +289,7 @@ class OrgMemoryMcpServer {
         },
         {
           name: UPDATE_MEMORY_TOOL_NAME,
-          description: 'Update an existing memory record by its memoryId.',
+          description: 'Advanced shared-memory operation: update an existing record by its memoryId.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -339,7 +315,7 @@ class OrgMemoryMcpServer {
         },
         {
           name: DELETE_MEMORY_TOOL_NAME,
-          description: 'Delete a memory record by its memoryId.',
+          description: 'Advanced shared-memory operation: delete a memory record by its memoryId.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -351,12 +327,12 @@ class OrgMemoryMcpServer {
             required: ['memory_id'],
           },
         },
-        // ── Profile & diagnostics ─────────────────────────────
+        // ── Derived views & diagnostics ───────────────────────
         {
           name: GET_USER_PROFILE_TOOL_NAME,
           description:
-            'Get the current developer profile including preferences (manual + auto-extracted), ' +
-            'languages, projects, memory stats, and current session info.',
+            'Get a derived summary of the current actor\'s preferences, languages, projects, ' +
+            'memory stats, and current session info from the shared memory resource.',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -389,6 +365,7 @@ class OrgMemoryMcpServer {
             return handleRetrieveContext(this.memoryClient, args);
 
           // Manual long-term CRUD
+          case CREATE_MEMORY_TOOL_NAME:
           case ADD_MEMORY_TOOL_NAME:
             return handleAddMemory(this.memoryClient, args);
           case SEARCH_MEMORIES_TOOL_NAME:

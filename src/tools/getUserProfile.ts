@@ -9,8 +9,8 @@ export function getUserProfileTool(client: BedrockMemoryClient) {
   return {
     name: GET_USER_PROFILE_TOOL_NAME,
     description:
-      'Get the current developer profile including coding preferences, top languages, ' +
-      'projects, memory statistics, and auto-extracted preferences from AgentCore strategies.',
+      'Get a derived summary of the current actor\'s preferences, languages, projects, and memory stats ' +
+      'from the shared AgentCore memory resource. This is a convenience view, not a privacy boundary.',
     inputSchema: {
       type: 'object',
       properties: {},

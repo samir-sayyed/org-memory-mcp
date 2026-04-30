@@ -22,8 +22,14 @@ import {
   BatchUpdateMemoryRecordsCommand,
   type MemoryRecordSummary,
 } from '@aws-sdk/client-bedrock-agentcore';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { Config } from '../utils/config.js';
 import { ConversationMessage } from '../types/memory.js';
+
+const AGENTCORE_MAX_ATTEMPTS = 3;
+const AGENTCORE_CONNECTION_TIMEOUT_MS = 5_000;
+const AGENTCORE_REQUEST_TIMEOUT_MS = 20_000;
+const AGENTCORE_SOCKET_TIMEOUT_MS = 20_000;
 
 export class BedrockMemoryClient {
   private client: BedrockAgentCoreClient;
@@ -34,6 +40,14 @@ export class BedrockMemoryClient {
   constructor(config: Config) {
     const clientConfig: any = {
       region: config.awsRegion,
+      maxAttempts: AGENTCORE_MAX_ATTEMPTS,
+      retryMode: 'standard' as const,
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: AGENTCORE_CONNECTION_TIMEOUT_MS,
+        requestTimeout: AGENTCORE_REQUEST_TIMEOUT_MS,
+        socketTimeout: AGENTCORE_SOCKET_TIMEOUT_MS,
+        throwOnRequestTimeout: true,
+      }),
     };
 
     if (config.awsAccessKeyId && config.awsSecretAccessKey) {
@@ -48,6 +62,10 @@ export class BedrockMemoryClient {
     this.memoryId = config.memoryArn.includes(":memory/") ? config.memoryArn.split(":memory/")[1] : config.memoryArn;
     this.orgId = config.orgId;
     this.actorId = config.actorId;
+  }
+
+  close(): void {
+    this.client.destroy();
   }
 
   private toMeta(value: string) {
@@ -272,6 +290,38 @@ export class BedrockMemoryClient {
         nextToken = response.nextToken;
       } while (nextToken);
     }
+
+    return allResults;
+  }
+
+  /** List long-term memory records under a namespacePath prefix */
+  async listMemoryRecordsByPath(
+    namespacePath: string,
+    limit?: number
+  ): Promise<MemoryRecordSummary[]> {
+    const allResults: MemoryRecordSummary[] = [];
+    let nextToken: string | undefined;
+
+    do {
+      const remaining = limit === undefined ? 100 : Math.max(limit - allResults.length, 0);
+      if (limit !== undefined && remaining === 0) {
+        break;
+      }
+
+      const command = new ListMemoryRecordsCommand({
+        memoryId: this.memoryId,
+        namespacePath,
+        maxResults: Math.min(100, remaining),
+        nextToken,
+      });
+
+      const response = await this.client.send(command);
+      if (response.memoryRecordSummaries) {
+        allResults.push(...response.memoryRecordSummaries);
+      }
+
+      nextToken = response.nextToken;
+    } while (nextToken);
 
     return allResults;
   }
