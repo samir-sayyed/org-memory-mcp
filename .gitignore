@@ -1,0 +1,20 @@
+# Environment / secrets — never commit these
+.env
+.env.local
+.env.*.local
+
+# Build output
+build/
+
+# Node modules
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/settings.json

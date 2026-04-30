@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Org Memory Observability</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app-container">
+  
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-icon">🧠</div>
+      <div class="logo-text">
+        <div class="logo-title">Org Memory</div>
+        <div class="logo-sub">Observability</div>
+      </div>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="nav-section">Insights</div>
+      <a class="nav-item active" data-view="analytics" onclick="switchView('analytics')">
+        <span class="nav-icon">📊</span> Manager Analytics
+      </a>
+      
+      <div class="nav-section">Memory Types</div>
+      <a class="nav-item" data-view="knowledge" onclick="switchView('knowledge')">
+        <span class="nav-icon">📚</span> Knowledge Base (Semantic)
+      </a>
+      <a class="nav-item" data-view="experience" onclick="switchView('experience')">
+        <span class="nav-icon">⏱️</span> Experience Log (Episodic)
+      </a>
+      
+      <div class="nav-section">Administration</div>
+      <a class="nav-item" data-view="raw-data" onclick="switchView('raw-data')">
+        <span class="nav-icon">🗄️</span> Raw Data Explorer
+      </a>
+      <a class="nav-item" data-view="system" onclick="switchView('system')">
+        <span class="nav-icon">⚙️</span> System Status
+      </a>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <button class="btn-refresh" id="refreshBtn" onclick="loadAllData()">
+        <svg id="refreshIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        Sync Data
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    
+    <!-- View: Analytics -->
+    <div class="view-panel active" id="view-analytics">
+      <header class="view-header">
+        <h1>Manager Analytics</h1>
+        <p>High-level KPIs for knowledge growth and agent alignment.</p>
+      </header>
+      
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Knowledge Growth (This Week)</div>
+          <div class="kpi-value" id="kpi-growth">+0</div>
+          <div class="kpi-trend">New extracted facts</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Total Semantic Facts</div>
+          <div class="kpi-value" id="kpi-semantic">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">User Preferences</div>
+          <div class="kpi-value" id="kpi-prefs">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Org-Shared Patterns</div>
+          <div class="kpi-value" id="kpi-shared">0</div>
+        </div>
+      </div>
+      
+      <div class="charts-grid">
+        <div class="chart-card">
+          <h3>Knowledge Accumulation Rate</h3>
+          <canvas id="accumulationChart"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Memory Scope Distribution</h3>
+          <div class="donut-wrap"><canvas id="scopeChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Knowledge Base (Semantic) -->
+    <div class="view-panel" id="view-knowledge">
+      <header class="view-header">
+        <h1>Knowledge Base</h1>
+        <p>The agent's "World View". Extracted semantic facts, rules, and preferences.</p>
+      </header>
+      
+      <div class="split-view">
+        <div class="split-sidebar">
+          <h3>Categories</h3>
+          <ul class="category-list">
+            <li class="cat-item active" onclick="filterKnowledge('all', this)">All Knowledge <span class="cat-count" id="cat-all">0</span></li>
+            <li class="cat-item" onclick="filterKnowledge('semantic', this)">🧠 Core Facts <span class="cat-count" id="cat-semantic">0</span></li>
+            <li class="cat-item" onclick="filterKnowledge('preference', this)">👤 User Preferences <span class="cat-count" id="cat-prefs">0</span></li>
+            <li class="cat-item" onclick="filterKnowledge('summary', this)">📝 Session Summaries <span class="cat-count" id="cat-summary">0</span></li>
+            <li class="cat-item" onclick="filterKnowledge('manual', this)">✍️ Manual Rules <span class="cat-count" id="cat-manual">0</span></li>
+          </ul>
+        </div>
+        <div class="split-content">
+          <div class="search-bar">
+            <input type="text" id="knowledgeSearch" placeholder="Search knowledge base..." oninput="filterKnowledgeContent()" />
+          </div>
+          <div class="knowledge-grid" id="knowledge-grid">
+            <!-- Knowledge cards go here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Experience Log (Episodic) -->
+    <div class="view-panel" id="view-experience">
+      <header class="view-header">
+        <h1>Experience Log</h1>
+        <p>Episodic memory timeline. Trace interactions and see where semantic knowledge was distilled.</p>
+      </header>
+      
+      <div class="experience-layout">
+        <div class="timeline-container" id="timeline-feed">
+          <!-- Chat/Event log goes here -->
+        </div>
+        <div class="context-gauge-panel">
+          <h3>Current Session Context</h3>
+          <div class="gauge-container">
+            <div class="gauge-bar">
+              <div class="gauge-fill" id="gauge-events" style="width: 50%;"></div>
+            </div>
+            <div class="gauge-labels">
+              <span>Short-term Events: <strong id="gauge-evt-val">0</strong></span>
+            </div>
+          </div>
+          <div class="extraction-info">
+            <p><strong>Distillation Process:</strong></p>
+            <p class="text-sm">AgentCore runs in the background. When enough episodic context builds up, the <code>Semantic</code> and <code>UserPreference</code> strategies extract core facts into the Knowledge Base.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Raw Data Explorer -->
+    <div class="view-panel" id="view-raw-data">
+      <header class="view-header">
+        <h1>Raw Data Explorer</h1>
+        <p>A tabular view of all stored long-term memory records for advanced querying.</p>
+      </header>
+      
+      <div class="table-toolbar">
+        <input type="text" id="rawSearch" placeholder="Filter records..." oninput="renderRawTable()" />
+        <select id="rawScopeFilter" onchange="renderRawTable()">
+          <option value="all">All Scopes</option>
+          <option value="user">User</option>
+          <option value="project">Project</option>
+          <option value="org">Org</option>
+          <option value="strategy">Auto-Extracted</option>
+        </select>
+      </div>
+      
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Scope</th>
+              <th>Content Snippet</th>
+              <th>Source</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="raw-table-body">
+            <!-- Rows -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- View: System Status -->
+    <div class="view-panel" id="view-system">
+      <header class="view-header">
+        <h1>System Status</h1>
+        <p>AgentCore diagnostics and configuration.</p>
+      </header>
+      <div class="system-grid" id="system-grid"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <span>Fetching Memory Graph…</span>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
