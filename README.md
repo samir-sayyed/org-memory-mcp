@@ -6,9 +6,25 @@ An MCP (Model Context Protocol) server that provides **org-wide persisted memory
 
 This project is designed to run as **one local MCP process per developer machine**.
 
-- One developer runs the MCP locally.
-- Multiple local AI clients on that same machine can use it, such as Copilot, Cursor, and Cline.
-- It is **not** currently designed as a shared hosted multi-user MCP service.
+- Each developer runs their own instance locally.
+- Multiple AI clients on that same machine (Copilot, Cursor, Cline) share the one process.
+- It is **not** a shared hosted multi-user service — each developer has their own isolated memory store.
+
+## Quick Start
+
+```bash
+# 1. Clone and build
+git clone https://github.com/samir-sayyed/org-memory-mcp.git
+cd org-memory-mcp
+npm install && npm run build
+
+# 2. Add to your MCP client config (see "Client Setup" section below)
+#    with your AWS credentials and MEMORY_ARN
+
+# 3. Reload your MCP client — the server starts automatically
+```
+
+The server requires no running process of its own — your MCP client launches it on demand.
 
 ## Overview
 
@@ -89,33 +105,45 @@ AWS Bedrock AgentCore Memory
 
 ## Installation
 
+### Prerequisites
+
+1. **AWS account** with access to AWS Bedrock AgentCore (currently `us-west-2` or `us-east-1`)
+2. **An AgentCore Memory resource** — create one in the AWS Console or via CLI:
+
+```bash
+aws bedrock-agentcore create-memory \
+  --name "MyOrgMemory" \
+  --region us-west-2
+```
+
+Copy the returned ARN — this is your `MEMORY_ARN`.
+
+3. **IAM permissions** — see the [AWS IAM Permissions](#aws-iam-permissions-required) section below.
+
 ### 1. Clone and Build
 
 ```bash
-git clone <repo-url>
-cd mem_mcp
+git clone https://github.com/samir-sayyed/org-memory-mcp.git
+cd org-memory-mcp
 npm install
 npm run build
 ```
 
-### 2. Configure Environment
+The server binary is at `build/index.js` inside the cloned directory.
 
-Copy `.env.example` to `.env` and fill in your AWS credentials:
+### 2. Configure Environment Variables
 
-```bash
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-MEMORY_ARN=arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id
-ORG_ID=your-org
-ACTOR_ID=dev@company.com
-```
+The server reads config from environment variables injected by your MCP client — no `.env` file needed at runtime.
 
-Notes:
-
-- `AWS_REGION` is optional and defaults to `us-west-2`.
-- `MEMORY_ARN`, `ORG_ID`, and `ACTOR_ID` are required.
-- `ORG_ID` and `ACTOR_ID` must not contain spaces or `/`.
-- `SESSION_ID` is optional — auto-generated as `coding-YYYYMMDD-HHMMSS-XXXX` when omitted.
+| Variable | Required | Description |
+|---|---|---|
+| `MEMORY_ARN` | ✅ | Full ARN of your AgentCore Memory resource |
+| `ORG_ID` | ✅ | Your org identifier, e.g. `acme-corp` (no spaces or `/`) |
+| `ACTOR_ID` | ✅ | Your user identifier, e.g. `alice@acme.com` (no spaces or `/`) |
+| `AWS_REGION` | optional | Defaults to `us-west-2` |
+| `AWS_ACCESS_KEY_ID` | optional | Only needed if not using IAM roles or AWS SSO |
+| `AWS_SECRET_ACCESS_KEY` | optional | Only needed if not using IAM roles or AWS SSO |
+| `SESSION_ID` | optional | Pinned session name; auto-generated as `coding-YYYYMMDD-HHMMSS-XXXX` when omitted |
 
 ### 3. Configure Memory Strategies
 
@@ -133,7 +161,34 @@ control_client.create_memory(
 )
 ```
 
-### 4. Add to Cline MCP Settings
+## Client Setup
+
+Replace `/path/to/org-memory-mcp` with the actual path where you cloned the repo.
+
+### GitHub Copilot (VS Code)
+
+Edit `~/Library/Application Support/Code/User/mcp.json` (macOS) or `%APPDATA%\Code\User\mcp.json` (Windows):
+
+```json
+{
+  "servers": {
+    "org-memory": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "env": {
+        "AWS_REGION": "us-west-2",
+        "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
+        "ORG_ID": "your-org",
+        "ACTOR_ID": "you@company.com",
+        "SESSION_ID": "copilot"
+      }
+    }
+  }
+}
+```
+
+### Cline (VS Code Extension)
 
 Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`:
 
@@ -142,14 +197,13 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
   "mcpServers": {
     "org-memory": {
       "command": "node",
-      "args": ["/Users/samirsayyed/Desktop/mem_mcp/build/index.js"],
+      "args": ["/path/to/org-memory-mcp/build/index.js"],
       "env": {
-        "AWS_ACCESS_KEY_ID": "your-key",
-        "AWS_SECRET_ACCESS_KEY": "your-secret",
         "AWS_REGION": "us-west-2",
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
         "ORG_ID": "your-org",
-        "ACTOR_ID": "dev@company.com"
+        "ACTOR_ID": "you@company.com",
+        "SESSION_ID": "cline"
       },
       "disabled": false,
       "autoApprove": []
@@ -157,6 +211,52 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
   }
 }
 ```
+
+### Cursor
+
+Edit `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "org-memory": {
+      "command": "node",
+      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "env": {
+        "AWS_REGION": "us-west-2",
+        "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
+        "ORG_ID": "your-org",
+        "ACTOR_ID": "you@company.com",
+        "SESSION_ID": "cursor"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "org-memory": {
+      "command": "node",
+      "args": ["/path/to/org-memory-mcp/build/index.js"],
+      "env": {
+        "AWS_REGION": "us-west-2",
+        "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
+        "ORG_ID": "your-org",
+        "ACTOR_ID": "you@company.com",
+        "SESSION_ID": "claude"
+      }
+    }
+  }
+}
+```
+
+> **Multi-client session isolation**: If you run multiple AI clients (e.g. Copilot + Cline + Cursor) simultaneously, set a distinct `SESSION_ID` for each one (`"copilot"`, `"cline"`, `"cursor"`). This keeps each client's short-term conversation history separate in AgentCore. Without it, all clients share the same auto-generated session ID.
 
 ## Usage Examples
 
@@ -243,7 +343,7 @@ Check these first:
 - `ORG_ID`
 - `ACTOR_ID`
 
-Use [.env.example](/Users/samirsayyed/Desktop/mem_mcp/.env.example#L1) as the starting template.
+Use `.env.example` in the repo root as the starting template.
 
 ### `Dashboard could not start because port 3001 is already in use`
 
