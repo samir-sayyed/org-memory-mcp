@@ -52,11 +52,11 @@
     "@aws-sdk/client-bedrock-agent-runtime": "^3.0.0",
     "@aws-sdk/client-bedrock-agentcore": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "dotenv": "^17.4.2",
     "nodemon": "^3.0.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.3.0"

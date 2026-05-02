@@ -10,6 +10,7 @@
  *   /api/strategies — Auto-extracted records from strategy namespaces
  */
 
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
