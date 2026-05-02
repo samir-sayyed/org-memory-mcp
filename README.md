@@ -10,7 +10,8 @@ This project is designed to run locally on developer machines, backed by **AWS B
 - Multiple AI clients on the same machine can point those local processes at the same `MEMORY_ARN` to share one AgentCore-backed memory space.
 - Multiple developers can point their local wrappers at the same `MEMORY_ARN` when they intentionally want shared memory.
 - This repo is **not** a hosted multi-user web service; the shared trust boundary is the AWS memory resource and its IAM policy.
-- `ACTOR_ID`, `SESSION_ID`, and namespace paths are used for attribution and retrieval, not as local authorization boundaries.
+- `ACTOR_ID`, `SESSION_ID`, and namespace paths are used for attribution and retrieval.
+- `AUTH_TOKEN` gates access per org. `ACTOR_ROLE=admin` required for org-scope writes.
 
 ## Quick Start
 
@@ -23,7 +24,8 @@ No installation required — your MCP client launches a local server process on 
   "env": {
     "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
     "ORG_ID": "your-org",
-    "ACTOR_ID": "you@company.com"
+    "ACTOR_ID": "you@company.com",
+    "AUTH_TOKEN": "your-org-access-token"
   }
 }
 ```
@@ -90,14 +92,16 @@ AWS Bedrock AgentCore Memory
 | Tool | Type | Description |
 |------|------|-------------|
 | `save_conversation` | **Primary** | Store conversation turns → AgentCore auto-extracts insights |
-| `retrieve_context` | **Primary** | Get combined short-term session + long-term context |
-| `create_memory` | Manual | Direct write to long-term memory for explicit deterministic saves |
-| `search_memories` | Query | Semantic search across all memory types |
+| `retrieve_context` | **Primary** | Get combined short-term session + long-term context. Supports `min_score` relevance filter |
+| `create_memory` | Manual | Direct write to long-term memory. `org` scope requires `ACTOR_ROLE=admin` |
+| `search_memories` | Query | Semantic search across all memory types. Supports `min_score` relevance filter |
 | `get_memories` | Advanced | Browse/filter long-term memory records when you do not have a search query |
 | `get_memory` | Advanced | Retrieve a single memory by ID |
 | `update_memory` | Advanced | Update existing shared memory content/metadata |
 | `delete_memory` | Advanced | Remove a shared memory record by ID |
-| `get_user_profile` | Derived | Actor summary from shared memory; convenience view, not a privacy boundary |
+| `trigger_extraction` | Control | Force immediate processing of short-term events into long-term memory |
+| `list_extraction_jobs` | Diagnostic | View recent extraction job status |
+| `get_user_profile` | Derived | Actor summary from shared memory |
 | `memory_status` | Diagnostic | Session info, memory counts, system health |
 | `launch_dashboard` | UI | Launch the local memory dashboard |
 
@@ -143,7 +147,9 @@ The server reads config from environment variables injected by your MCP client. 
 | `MEMORY_ARN` | ✅ | Full ARN of your AgentCore Memory resource |
 | `ORG_ID` | ✅ | Your org identifier, e.g. `acme-corp` (no spaces or `/`) |
 | `ACTOR_ID` | ✅ | Your user identifier, e.g. `alice@acme.com` (no spaces or `/`) |
+| `AUTH_TOKEN` | ✅ | Org access token for auth tracking and audit |
 | `AWS_REGION` | optional | Defaults to `us-west-2` |
+| `ACTOR_ROLE` | optional | `developer` (default) or `admin`. Admin required for org-scope writes |
 | `AWS_ACCESS_KEY_ID` | optional | Only needed if not using IAM roles or AWS SSO |
 | `AWS_SECRET_ACCESS_KEY` | optional | Only needed if not using IAM roles or AWS SSO |
 | `AWS_SESSION_TOKEN` | optional | Only needed when using temporary AWS credentials |
@@ -183,6 +189,7 @@ Edit `~/Library/Application Support/Code/User/mcp.json` (macOS) or `%APPDATA%\Co
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
         "ORG_ID": "your-org",
         "ACTOR_ID": "you@company.com",
+        "AUTH_TOKEN": "your-org-access-token",
         "SESSION_ID": "copilot"
       }
     }
@@ -205,6 +212,7 @@ Edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-d
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
         "ORG_ID": "your-org",
         "ACTOR_ID": "you@company.com",
+        "AUTH_TOKEN": "your-org-access-token",
         "SESSION_ID": "cline"
       },
       "disabled": false,
@@ -229,6 +237,7 @@ Edit `~/.cursor/mcp.json`:
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
         "ORG_ID": "your-org",
         "ACTOR_ID": "you@company.com",
+        "AUTH_TOKEN": "your-org-access-token",
         "SESSION_ID": "cursor"
       }
     }
@@ -251,6 +260,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
         "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
         "ORG_ID": "your-org",
         "ACTOR_ID": "you@company.com",
+        "AUTH_TOKEN": "your-org-access-token",
         "SESSION_ID": "claude"
       }
     }
@@ -386,17 +396,25 @@ The handlers now reject invalid inputs earlier than before. Common examples:
 
 ## Org-Wide Sharing
 
-Memories can be scoped at three levels:
+Memories scoped at three levels:
 
-- **`user`** (default): Actor-scoped namespace for developer-specific manual saves
-- **`project`**: Project-shared namespace for team memories
-- **`org`**: Org-shared namespace for approved patterns
+- **`user`** (default): Personal coding preferences, private notes
+- **`project`**: Team conventions, project-specific patterns
+- **`org`**: Org-wide approved standards. **Requires `ACTOR_ROLE=admin`** to write. All users can read.
 
-When searching with `scope: "all"`, the agent retrieves from:
+When searching with `scope: "all"`, agent retrieves from:
 1. Your actor-scoped manual memories
 2. Project memories (if project specified)
 3. Org-wide shared memories
 4. Auto-extracted strategy records
+
+### Relevance Filtering
+
+Both `search_memories` and `retrieve_context` support `min_score` (0-1):
+- `min_score: 0.8` → Only highly relevant memories
+- Omit or `0` → Return all results
+
+AgentCore returns relevance scores natively on every semantic search.
 
 ## AWS IAM Permissions Required
 

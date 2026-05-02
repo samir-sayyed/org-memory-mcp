@@ -102,6 +102,7 @@ function renderAnalytics() {
   // Render Charts
   renderAccumulationChart();
   renderScopeDonut();
+  renderTopInsights();
 }
 
 function renderAccumulationChart() {
@@ -142,6 +143,28 @@ function renderAccumulationChart() {
       }
     }
   });
+}
+
+function renderTopInsights() {
+  const top = ALL_MEMORIES
+    .filter(m => typeof m.score === 'number')
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const container = document.getElementById('topInsights');
+  if (!container) return;
+
+  if (top.length === 0) {
+    container.innerHTML = '<div style="color:#8b949e">No scored memories yet.</div>';
+    return;
+  }
+
+  container.innerHTML = top.map(m => `
+    <div style="margin-bottom:8px; padding:8px; background:#161b22; border-radius:6px; border-left:3px solid #58a6ff;">
+      <div style="font-size:12px; color:#58a6ff; margin-bottom:4px">score: ${m.score.toFixed(3)} · ${m.scope}</div>
+      <div style="font-size:13px; color:#c9d1d9">${esc(m.content).slice(0, 120)}${m.content.length > 120 ? '...' : ''}</div>
+    </div>
+  `).join('');
 }
 
 function renderScopeDonut() {
@@ -203,6 +226,7 @@ function filterKnowledgeContent() {
                       m.uiCat === 'preference' ? '👤 Preference' : 
                       m.uiCat === 'summary' ? '📝 Summary' : '✍️ Manual';
     
+    const scoreLabel = typeof m.score === 'number' ? `score: ${m.score.toFixed(3)}` : '';
     return `
       <div class="k-card type-${m.uiCat}">
         <div class="k-header">
@@ -212,6 +236,7 @@ function filterKnowledgeContent() {
         <div class="k-content">${esc(m.content)}</div>
         <div class="k-footer">
           <span>${esc(m.memoryId).slice(0, 12)}...</span>
+          <span style="color:#58a6ff">${scoreLabel}</span>
           <span>${timeAgo(m.createdAt)}</span>
         </div>
       </div>

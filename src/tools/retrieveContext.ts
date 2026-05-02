@@ -16,6 +16,13 @@ import { loadConfig } from '../utils/config.js';
 import { getActiveSessionId } from '../utils/session.js';
 import { getRequiredString, getOptionalString, getReadScope, getLimit } from '../utils/validation.js';
 
+function getMinScore(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number') return undefined;
+  if (value < 0 || value > 1) return undefined;
+  return value;
+}
+
 export const RETRIEVE_CONTEXT_TOOL_NAME = 'retrieve_context';
 
 export async function handleRetrieveContext(
@@ -30,6 +37,7 @@ export async function handleRetrieveContext(
     const scope = args?.scope ? getReadScope(args.scope) : 'all';
     const project = getOptionalString(args?.project);
     const limit = getLimit(args?.limit, 10, 50);
+    const minScore = getMinScore(args?.min_score);
 
     // ── Short-term memory: current session events ──────────────────
     let sessionContext: Array<{
@@ -69,7 +77,7 @@ export async function handleRetrieveContext(
     const namespace = resolveNamespace(config, scope, project);
     let orgRecords: any[] = [];
     try {
-      const results = await client.retrieveMemoryRecords(query, namespace, limit);
+      const results = await client.retrieveMemoryRecords(query, namespace, limit, minScore);
       orgRecords = results.map((r) => ({
         memoryId: r.memoryRecordId,
         content: r.content && 'text' in r.content ? r.content.text : 'N/A',
@@ -91,7 +99,7 @@ export async function handleRetrieveContext(
     let strategyRecords: any[] = [];
     try {
       const strategyPath = getStrategyNamespacePath(config);
-      const results = await client.retrieveMemoryRecordsByPath(query, strategyPath, limit);
+      const results = await client.retrieveMemoryRecordsByPath(query, strategyPath, limit, minScore);
       strategyRecords = results.map((r) => ({
         memoryId: r.memoryRecordId,
         content: r.content && 'text' in r.content ? r.content.text : 'N/A',

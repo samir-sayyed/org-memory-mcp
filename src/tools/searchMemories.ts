@@ -9,6 +9,13 @@ import {
   getRequiredString,
 } from '../utils/validation.js';
 
+function getMinScore(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number') return undefined;
+  if (value < 0 || value > 1) return undefined;
+  return value;
+}
+
 export const SEARCH_MEMORIES_TOOL_NAME = 'search_memories';
 
 export function searchMemoriesTool(client: BedrockMemoryClient) {
@@ -44,7 +51,13 @@ export function searchMemoriesTool(client: BedrockMemoryClient) {
         include_strategy_memories: {
           type: 'boolean',
           default: true,
-          description: 'Also search auto-extracted memories from AgentCore strategies (default: true)',
+          description: 'Also search auto-extracted memories from AgentCore strategies',
+        },
+        min_score: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Minimum relevance score (0-1). Higher = more relevant results only.',
         },
         limit: {
           type: 'number',
@@ -73,6 +86,7 @@ export async function handleSearchMemories(
       : undefined;
     const includeStrategyMemories = args?.include_strategy_memories !== false; // default true
     const limit = getLimit(args?.limit, 10, 50);
+    const minScore = getMinScore(args?.min_score);
 
     if (scope === 'project' && !project) {
       throw new Error('project is required when scope is "project"');
@@ -81,14 +95,14 @@ export async function handleSearchMemories(
     const namespace = resolveNamespace(config, scope, project);
 
     // Search manually saved records in org namespaces
-    const results = await client.retrieveMemoryRecords(query, namespace, limit);
+    const results = await client.retrieveMemoryRecords(query, namespace, limit, minScore);
 
     // Also search strategy-extracted records
     let strategyResults: any[] = [];
     if (includeStrategyMemories) {
       try {
         const strategyPath = getStrategyNamespacePath(config);
-        strategyResults = await client.retrieveMemoryRecordsByPath(query, strategyPath, limit);
+        strategyResults = await client.retrieveMemoryRecordsByPath(query, strategyPath, limit, minScore);
       } catch {
         // Strategy records may not exist yet — non-fatal
       }

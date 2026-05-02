@@ -1,6 +1,6 @@
 import { BedrockMemoryClient } from '../aws/bedrockAgentCore.js';
 import { resolveNamespace } from '../utils/namespaces.js';
-import { loadConfig } from '../utils/config.js';
+import { loadConfig, isAdmin } from '../utils/config.js';
 import {
   getMemoryType,
   getNormalizedTags,
@@ -78,6 +78,10 @@ export async function handleAddMemory(
 
     if (scope === 'project' && !project) {
       throw new Error('project is required when scope is "project"');
+    }
+
+    if (scope === 'org' && !isAdmin(config)) {
+      throw new Error('org scope writes require admin role. Set ACTOR_ROLE=admin.');
     }
 
     const namespace = resolveNamespace(config, scope, project) as string;

@@ -8,7 +8,7 @@ import { handleGetMemory } from '../build/tools/getMemory.js';
 import { handleSearchMemories } from '../build/tools/searchMemories.js';
 import { handleUpdateMemory } from '../build/tools/updateMemory.js';
 
-const ENV_KEYS = ['AWS_REGION', 'MEMORY_ARN', 'ORG_ID', 'ACTOR_ID'];
+const ENV_KEYS = ['AWS_REGION', 'MEMORY_ARN', 'ORG_ID', 'ACTOR_ID', 'AUTH_TOKEN'];
 
 function withRequiredEnv(fn) {
   const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -17,6 +17,7 @@ function withRequiredEnv(fn) {
   process.env.MEMORY_ARN = 'arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/test-memory';
   process.env.ORG_ID = 'test-org';
   process.env.ACTOR_ID = 'test-user';
+  process.env.AUTH_TOKEN = 'test-token';
 
   return Promise.resolve(fn()).finally(() => {
     for (const key of ENV_KEYS) {
@@ -136,12 +137,14 @@ test('get_memories formats config failures as tool errors', async () => {
     MEMORY_ARN: process.env.MEMORY_ARN,
     ORG_ID: process.env.ORG_ID,
     ACTOR_ID: process.env.ACTOR_ID,
+    AUTH_TOKEN: process.env.AUTH_TOKEN,
   };
 
   delete process.env.AWS_REGION;
   delete process.env.MEMORY_ARN;
   delete process.env.ORG_ID;
   delete process.env.ACTOR_ID;
+  delete process.env.AUTH_TOKEN;
 
   try {
     const result = await handleGetMemories(
@@ -162,6 +165,20 @@ test('get_memories formats config failures as tool errors', async () => {
       }
     }
   }
+});
+
+test('create_memory blocks org scope for non-admin', async () => {
+  await withRequiredEnv(async () => {
+    const result = await handleAddMemory(
+      {
+        batchCreateMemoryRecords: async () => [],
+      },
+      { content: 'org rule', memory_type: 'architecture', scope: 'org' }
+    );
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /org scope writes require admin role/);
+  });
 });
 
 test('get_memory surfaces non-not-found Bedrock errors', async () => {

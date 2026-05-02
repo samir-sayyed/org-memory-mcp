@@ -51,6 +51,8 @@ import { LAUNCH_DASHBOARD_TOOL_NAME, launchDashboardTool, handleLaunchDashboard 
 import { SAVE_CONVERSATION_TOOL_NAME, handleSaveConversation } from './tools/saveConversation.js';
 import { RETRIEVE_CONTEXT_TOOL_NAME, handleRetrieveContext } from './tools/retrieveContext.js';
 import { MEMORY_STATUS_TOOL_NAME, handleMemoryStatus } from './tools/memoryStatus.js';
+import { TRIGGER_EXTRACTION_TOOL_NAME, handleTriggerExtraction } from './tools/triggerExtraction.js';
+import { LIST_EXTRACTION_JOBS_TOOL_NAME, handleListExtractionJobs } from './tools/listExtractionJobs.js';
 
 class OrgMemoryMcpServer {
   private server: Server;
@@ -81,7 +83,7 @@ class OrgMemoryMcpServer {
     this.server = new Server(
       {
         name: 'org-memory-mcp',
-        version: '1.0.2',
+        version: '1.1.0',
       },
       {
         capabilities: {
@@ -184,6 +186,12 @@ class OrgMemoryMcpServer {
               project: {
                 type: 'string',
                 description: 'Project filter for long-term memories',
+              },
+              min_score: {
+                type: 'number',
+                minimum: 0,
+                maximum: 1,
+                description: 'Minimum relevance score (0-1). Higher = more relevant results only.',
               },
               limit: {
                 type: 'number',
@@ -348,6 +356,39 @@ class OrgMemoryMcpServer {
             properties: {},
           },
         },
+        {
+          name: TRIGGER_EXTRACTION_TOOL_NAME,
+          description:
+            'Trigger an on-demand memory extraction job. AgentCore will immediately process ' +
+            'short-term events into long-term memory records. Use when you need insights NOW.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              session_id: {
+                type: 'string',
+                description: 'Optional session ID to target for extraction',
+              },
+            },
+          },
+        },
+        {
+          name: LIST_EXTRACTION_JOBS_TOOL_NAME,
+          description:
+            'List recent memory extraction jobs and their status. Shows which strategy jobs ' +
+            'are running, completed, or failed.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              limit: {
+                type: 'number',
+                default: 20,
+                minimum: 1,
+                maximum: 50,
+                description: 'Maximum jobs to return',
+              },
+            },
+          },
+        },
         launchDashboardTool(),
       ],
     }));
@@ -384,6 +425,10 @@ class OrgMemoryMcpServer {
             return handleGetUserProfile(this.memoryClient, args);
           case MEMORY_STATUS_TOOL_NAME:
             return handleMemoryStatus(this.memoryClient, args);
+          case TRIGGER_EXTRACTION_TOOL_NAME:
+            return handleTriggerExtraction(this.memoryClient, args);
+          case LIST_EXTRACTION_JOBS_TOOL_NAME:
+            return handleListExtractionJobs(this.memoryClient, args);
           case LAUNCH_DASHBOARD_TOOL_NAME:
             return handleLaunchDashboard(args);
 

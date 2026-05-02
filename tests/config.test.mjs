@@ -9,6 +9,7 @@ const ENV_KEYS = [
   'ORG_ID',
   'ACTOR_ID',
   'ACTOR_ROLE',
+  'AUTH_TOKEN',
   'AWS_ACCESS_KEY_ID',
   'AWS_SECRET_ACCESS_KEY',
   'AWS_SESSION_TOKEN',
@@ -38,16 +39,18 @@ function withEnv(overrides, fn) {
   });
 }
 
-test('loadConfig defaults AWS_REGION for local use', async () => {
+test('loadConfig defaults AWS_REGION and ACTOR_ROLE for local use', async () => {
   await withEnv(
     {
       MEMORY_ARN: 'arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/test-memory',
       ORG_ID: 'local-org',
       ACTOR_ID: 'local-user',
+      AUTH_TOKEN: 'test-token',
     },
     () => {
       const config = loadConfig();
       assert.equal(config.awsRegion, 'us-west-2');
+      assert.equal(config.actorRole, 'developer');
     }
   );
 });
@@ -58,6 +61,7 @@ test('loadConfig rejects malformed memory arns', async () => {
       MEMORY_ARN: 'not-an-arn',
       ORG_ID: 'local-org',
       ACTOR_ID: 'local-user',
+      AUTH_TOKEN: 'test-token',
     },
     () => {
       assert.throws(() => loadConfig(), ConfigError);

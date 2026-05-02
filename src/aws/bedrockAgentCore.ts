@@ -20,6 +20,8 @@ import {
   DeleteMemoryRecordCommand,
   BatchCreateMemoryRecordsCommand,
   BatchUpdateMemoryRecordsCommand,
+  StartMemoryExtractionJobCommand,
+  ListMemoryExtractionJobsCommand,
   type MemoryRecordSummary,
 } from '@aws-sdk/client-bedrock-agentcore';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
@@ -36,6 +38,8 @@ export class BedrockMemoryClient {
   private memoryId: string;
   private orgId: string;
   private actorId: string;
+  private actorRole: string;
+  private authToken: string;
 
   constructor(config: Config) {
     const clientConfig: any = {
@@ -62,6 +66,16 @@ export class BedrockMemoryClient {
     this.memoryId = config.memoryArn.includes(":memory/") ? config.memoryArn.split(":memory/")[1] : config.memoryArn;
     this.orgId = config.orgId;
     this.actorId = config.actorId;
+    this.actorRole = config.actorRole;
+    this.authToken = config.authToken;
+  }
+
+  /** Build audit metadata for every write */
+  private auditMeta(): Record<string, string> {
+    return {
+      actorRole: this.actorRole,
+      authHash: this.authToken.slice(0, 8),
+    };
   }
 
   close(): void {
@@ -182,7 +196,8 @@ export class BedrockMemoryClient {
   async retrieveMemoryRecords(
     query: string,
     namespace: string | string[],
-    limit: number = 10
+    limit: number = 10,
+    minScore?: number
   ): Promise<MemoryRecordSummary[]> {
     const namespaces = Array.isArray(namespace) ? namespace : [namespace];
     const allResults: MemoryRecordSummary[] = [];
@@ -206,8 +221,11 @@ export class BedrockMemoryClient {
 
         const response = await this.client.send(command);
         if (response.memoryRecordSummaries) {
-          allResults.push(...response.memoryRecordSummaries);
-          namespaceResultCount += response.memoryRecordSummaries.length;
+          const filtered = minScore
+            ? response.memoryRecordSummaries.filter((r) => (r.score || 0) >= minScore)
+            : response.memoryRecordSummaries;
+          allResults.push(...filtered);
+          namespaceResultCount += filtered.length;
         }
 
         nextToken = response.nextToken;
@@ -226,7 +244,8 @@ export class BedrockMemoryClient {
   async retrieveMemoryRecordsByPath(
     query: string,
     namespacePath: string,
-    limit: number = 10
+    limit: number = 10,
+    minScore?: number
   ): Promise<MemoryRecordSummary[]> {
     const allResults: MemoryRecordSummary[] = [];
     let nextToken: string | undefined;
@@ -246,7 +265,10 @@ export class BedrockMemoryClient {
 
       const response = await this.client.send(command);
       if (response.memoryRecordSummaries) {
-        allResults.push(...response.memoryRecordSummaries);
+        const filtered = minScore
+          ? response.memoryRecordSummaries.filter((r) => (r.score || 0) >= minScore)
+          : response.memoryRecordSummaries;
+        allResults.push(...filtered);
       }
 
       nextToken = response.nextToken;
@@ -353,6 +375,7 @@ export class BedrockMemoryClient {
       metadata?: Record<string, string>;
     }>
   ): Promise<string[]> {
+    const audit = this.auditMeta();
     const memoryRecords = records.map((r, idx) => ({
       requestIdentifier: `req-${Date.now()}-${idx}`,
       namespaces: [namespace],
@@ -362,6 +385,9 @@ export class BedrockMemoryClient {
         orgId: this.toMeta(this.orgId),
         actorId: this.toMeta(this.actorId),
         createdAt: this.toMeta(new Date().toISOString()),
+        ...Object.fromEntries(
+          Object.entries(audit).map(([k, v]) => [k, this.toMeta(v)])
+        ),
         ...(r.metadata &&
           Object.fromEntries(
             Object.entries(r.metadata).map(([k, v]) => [k, this.toMeta(v)])
@@ -425,6 +451,33 @@ export class BedrockMemoryClient {
     await this.client.send(command);
   }
 
+  // ── Extraction Jobs ───────────────────────────────────────────────
+
+  /** Trigger immediate extraction of short-term events into long-term memory */
+  async startMemoryExtractionJob(sessionId?: string): Promise<string> {
+    const command = new StartMemoryExtractionJobCommand({
+      memoryId: this.memoryId,
+      extractionJob: { jobId: `extract-${Date.now()}` },
+      clientToken: `token-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    });
+
+    const response = await this.client.send(command);
+    return response.jobId || '';
+  }
+
+  /** List recent memory extraction jobs */
+  async listMemoryExtractionJobs(maxResults?: number) {
+    const command = new ListMemoryExtractionJobsCommand({
+      memoryId: this.memoryId,
+      maxResults: maxResults || 20,
+    });
+
+    const response = await this.client.send(command);
+    return response.jobs || [];
+  }
+
+  // ── Getters ───────────────────────────────────────────────────────
+
   /** Get the memory ID (for diagnostics) */
   getMemoryId(): string {
     return this.memoryId;
@@ -438,5 +491,10 @@ export class BedrockMemoryClient {
   /** Get the org ID (for diagnostics) */
   getOrgId(): string {
     return this.orgId;
+  }
+
+  /** Get the actor role (for access control) */
+  getActorRole(): string {
+    return this.actorRole;
   }
 }
