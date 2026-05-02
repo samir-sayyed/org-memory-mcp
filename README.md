@@ -24,11 +24,14 @@ No installation required — your MCP client launches a local server process on 
   "env": {
     "MEMORY_ARN": "arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/your-memory-id",
     "ORG_ID": "your-org",
-    "ACTOR_ID": "you@company.com",
-    "AUTH_TOKEN": "your-org-access-token"
+    "ACTOR_ID": "your-actor-id",
+    "AUTH_TOKEN": "your-org-access-token",
+    "ACTOR_ROLE": "developer"
   }
 }
 ```
+
+> **Note on identifiers**: `ACTOR_ID` and `ORG_ID` are auto-sanitized for AWS compatibility. `user@example.com` becomes `user-at-example-com`. Use `[a-zA-Z0-9-_]` format to avoid changes.
 
 1. Add the config above to your MCP client (see [Client Setup](#client-setup) for per-client file locations)
 2. Reload your MCP client — done

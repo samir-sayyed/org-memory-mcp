@@ -155,7 +155,7 @@ test('get_memories formats config failures as tool errors', async () => {
     );
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Missing required environment variable MEMORY_ARN/);
+    assert.match(result.content[0].text, /Missing required environment variable/);
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) {

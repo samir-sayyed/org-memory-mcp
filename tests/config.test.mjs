@@ -69,6 +69,52 @@ test('loadConfig rejects malformed memory arns', async () => {
   );
 });
 
+test('loadConfig auto-sanitizes email-style ACTOR_ID', async () => {
+  await withEnv(
+    {
+      MEMORY_ARN: 'arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/test-memory',
+      ORG_ID: 'test-org',
+      ACTOR_ID: 'samir@dev.com',
+      AUTH_TOKEN: 'test-token',
+    },
+    () => {
+      const config = loadConfig();
+      assert.equal(config.actorId, 'samir-at-dev-com');
+    }
+  );
+});
+
+test('loadConfig auto-sanitizes dot-containing ORG_ID', async () => {
+  await withEnv(
+    {
+      MEMORY_ARN: 'arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/test-memory',
+      ORG_ID: 'my.company.org',
+      ACTOR_ID: 'test-user',
+      AUTH_TOKEN: 'test-token',
+    },
+    () => {
+      const config = loadConfig();
+      assert.equal(config.orgId, 'my-company-org');
+    }
+  );
+});
+
+test('loadConfig preserves already-valid identifiers', async () => {
+  await withEnv(
+    {
+      MEMORY_ARN: 'arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/test-memory',
+      ORG_ID: 'acme-corp',
+      ACTOR_ID: 'alice_dev',
+      AUTH_TOKEN: 'test-token',
+    },
+    () => {
+      const config = loadConfig();
+      assert.equal(config.orgId, 'acme-corp');
+      assert.equal(config.actorId, 'alice_dev');
+    }
+  );
+});
+
 test('formatConfigError includes local setup guidance', () => {
   const message = formatConfigError(new ConfigError('Missing required environment variable MEMORY_ARN'));
 

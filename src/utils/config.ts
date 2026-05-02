@@ -37,6 +37,25 @@ function validateNamespaceSegment(name: string, value: string) {
   }
 }
 
+/**
+ * Sanitize identifiers for AWS Bedrock AgentCore compatibility.
+ * AgentCore actorId/orgId must satisfy: [a-zA-Z0-9][a-zA-Z0-9-_/]*
+ * We map @ → -at- and . → -, then strip any remaining invalid chars.
+ */
+function sanitizeId(value: string): string {
+  const sanitized = value
+    .replace(/@/g, '-at-')
+    .replace(/\./g, '-')
+    .replace(/[^a-zA-Z0-9\-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  if (sanitized !== value) {
+    console.error(`[Config] Sanitized identifier: "${value}" → "${sanitized}"`);
+  }
+  return sanitized;
+}
+
 function validateMemoryArn(memoryArn: string) {
   if (!/^arn:aws:bedrock-agentcore:[^:]+:\d{12}:memory\/.+/.test(memoryArn)) {
     throw new ConfigError(
@@ -61,7 +80,7 @@ export function formatConfigError(error: unknown): string {
     'Required local variables:',
     '  MEMORY_ARN=arn:aws:bedrock-agentcore:us-west-2:123456789012:memory/my-memory-id',
     '  ORG_ID=your-org-id',
-    '  ACTOR_ID=developer@company.com',
+    '  ACTOR_ID=samir-dev  (emails auto-sanitized: user@example.com → user-at-example-com)',
     '  AUTH_TOKEN=your-org-access-token',
     'Optional local variables:',
     '  AWS_REGION defaults to us-west-2 when omitted',
@@ -77,11 +96,14 @@ export function isAdmin(config: Config): boolean {
 }
 
 export function loadConfig(): Config {
+  const rawOrgId = getEnv('ORG_ID', true)!;
+  const rawActorId = getEnv('ACTOR_ID', true)!;
+
   const config: Config = {
     awsRegion: getEnv('AWS_REGION', false) || 'us-west-2',
     memoryArn: getEnv('MEMORY_ARN', true)!,
-    orgId: getEnv('ORG_ID', true)!,
-    actorId: getEnv('ACTOR_ID', true)!,
+    orgId: sanitizeId(rawOrgId),
+    actorId: sanitizeId(rawActorId),
     actorRole: getEnv('ACTOR_ROLE', false) || 'developer',
     authToken: getEnv('AUTH_TOKEN', true)!,
     sessionId: getEnv('SESSION_ID', false),
