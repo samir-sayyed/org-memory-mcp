@@ -273,6 +273,71 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 > **Multi-client session isolation**: Each MCP server instance generates a unique `SESSION_ID` automatically when `SESSION_ID` is omitted, so simultaneous clients do not collide by default. Set a distinct explicit `SESSION_ID` for each client (`"copilot"`, `"cline"`, `"cursor"`) if you want stable separation across restarts and clearer dashboard/debugging attribution.
 
+## Enable Automatic Memory Usage
+
+By default, the AI agent must decide to call memory tools. For the best experience, configure your IDE to use the memory protocol automatically.
+
+### Method 1: MCP Prompt (Recommended for Claude Desktop)
+
+If your MCP client supports `prompts` capability, the server exposes a `memory_protocol` prompt that instructs the AI when to use memory tools. Claude Desktop automatically uses this prompt on each conversation.
+
+### Method 2: Custom Instructions (All IDEs)
+
+#### Claude Desktop / Claude Code
+
+Paste into **Settings → Projects → Custom Instructions**:
+
+```
+You have access to an org-wide memory system via MCP tools. Follow these rules:
+
+1. BEFORE responding, call retrieve_context with a query summarizing what the user needs
+2. AFTER significant exchanges, call save_conversation to store the turn
+3. When user asks "how do we..." or "what do we know about...", call search_memories
+4. For explicit facts user wants remembered, call create_memory with memory_type
+5. Check memory_status periodically to verify system health
+```
+
+#### Cursor
+
+Copy `.cursor/rules/memory.mdc` from this repository into your `~/.cursor/rules/` directory, or paste the contents into **Cursor Settings → Rules for AI**.
+
+The file is included in this repo at `.cursor/rules/memory.mdc`.
+
+#### Cline
+
+Paste the same instructions into **Cline Settings → Custom Instructions**.
+
+#### VS Code + GitHub Copilot
+
+Paste into **GitHub Copilot Settings → Custom Instructions**. Note: Copilot MCP support is limited; tools may require manual approval.
+
+### Method 3: Auto-Approval (Fastest)
+
+Pre-approve memory tools so the AI can call them without interruption.
+
+**Cline** (`cline_mcp_settings.json`):
+```json
+{
+  "mcpServers": {
+    "org-memory": {
+      "command": "npx",
+      "args": ["-y", "org-memory-mcp"],
+      "env": { ... },
+      "autoApprove": [
+        "save_conversation",
+        "retrieve_context",
+        "search_memories",
+        "get_user_profile",
+        "memory_status"
+      ]
+    }
+  }
+}
+```
+
+**Cursor** (Settings → MCP → Auto-run tools):
+Enable auto-run for: `save_conversation`, `retrieve_context`, `search_memories`
+
 ## Usage Examples
 
 ### Save a Conversation (Recommended)

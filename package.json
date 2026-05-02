@@ -1,6 +1,6 @@
 {
   "name": "org-memory-mcp",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Org-wide persisted memory for AI coding agents via AWS Bedrock AgentCore. MCP server with short-term session events, long-term semantic search, and user/project/org namespaces.",
   "type": "module",
   "main": "build/index.js",

@@ -26,6 +26,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   McpError,
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
@@ -83,16 +85,18 @@ class OrgMemoryMcpServer {
     this.server = new Server(
       {
         name: 'org-memory-mcp',
-        version: '1.2.1',
+        version: '1.3.0',
       },
       {
         capabilities: {
           tools: {},
+          prompts: {},
         },
       }
     );
 
     this.setupToolHandlers();
+    this.setupPromptHandlers();
     this.setupErrorHandling();
   }
 
@@ -102,6 +106,82 @@ class OrgMemoryMcpServer {
       this.closeMemoryClient();
       await this.server.close();
       process.exit(0);
+    });
+  }
+
+  private setupPromptHandlers() {
+    // List available prompts
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: [
+        {
+          name: 'memory_protocol',
+          description:
+            'Guidelines for effectively using the org-wide memory system. ' +
+            'Instructs the AI when to retrieve context, save conversations, and search memories.',
+        },
+      ],
+    }));
+
+    // Return prompt content
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name } = request.params;
+
+      if (name === 'memory_protocol') {
+        return {
+          description:
+            'Memory Protocol — How to use org-wide persisted memory for contextual AI assistance',
+          messages: [
+            {
+              role: 'user' as const,
+              content: {
+                type: 'text' as const,
+                text: [
+                  'You have access to an org-wide persisted memory system via MCP tools.',
+                  'Follow these rules on EVERY interaction:',
+                  '',
+                  '## 1. BEFORE Responding to the User',
+                  'Call `retrieve_context` with a natural-language query summarizing what the user needs.',
+                  'Example: user asks "How do we handle auth?" → retrieve_context({ query: "authentication patterns and auth middleware" })',
+                  '',
+                  '## 2. AFTER Significant Exchanges',
+                  'Call `save_conversation` to store the conversation turn in short-term memory.',
+                  'AgentCore will auto-extract facts, preferences, and summaries into long-term memory.',
+                  'Example: user explains payment API architecture → save_conversation({ messages })',
+                  '',
+                  '## 3. When User Asks "How do we..." or "What do we know about..."',
+                  'Call `search_memories` with the user\'s question as the query.',
+                  'This searches both manually saved memories and auto-extracted strategy insights.',
+                  'Example: "How do we handle errors?" → search_memories({ query: "error handling patterns" })',
+                  '',
+                  '## 4. For Explicit Facts the User Wants Remembered',
+                  'Call `create_memory` with the appropriate memory_type:',
+                  '  - `style` — coding style preferences (indentation, naming, etc.)',
+                  '  - `architecture` — design decisions and patterns',
+                  '  - `bugfix` — bug solutions and error patterns',
+                  '  - `api_pattern` — API integration patterns',
+                  '  - `preference` — personal/team preferences',
+                  '  - `general` — general knowledge',
+                  'Example: "Remember we use Zod for validation" → create_memory({ content: "Use Zod for API validation", memory_type: "architecture", scope: "project", project: "payment-api" })',
+                  '',
+                  '## 5. Check System Health Periodically',
+                  'Call `memory_status` every few turns to verify the memory system is healthy and records are accumulating.',
+                  '',
+                  '## Relevance Filtering',
+                  'Both `search_memories` and `retrieve_context` support `min_score` (0-1).',
+                  'Use `min_score: 0.7` when you need only highly relevant results.',
+                  '',
+                  '## Scope Rules',
+                  '`user` scope (default) = personal memories.',
+                  '`project` scope = team memories for a specific project.',
+                  '`org` scope = org-wide standards. Only admins can write org-scope memories.',
+                ].join('\n'),
+              },
+            },
+          ],
+        };
+      }
+
+      throw new McpError(ErrorCode.InvalidRequest, `Unknown prompt: ${name}`);
     });
   }
 
