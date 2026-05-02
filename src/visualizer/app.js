@@ -1,342 +1,397 @@
 // ─── State ──────────────────────────────────────────
 let ALL_MEMORIES = [];
-let SESSION_DATA = { sessionId: '', events: [] };
-let STATUS_DATA = {};
+let SESSION_EVENTS = [];
+let STATUS = {};
+let LIVE_INTERVAL = null;
+let IS_LIVE = true;
 
-let activeKnowledgeCat = 'all';
-let accumulationChart = null;
-let scopeChart = null;
+const searchState = { scope: 'all', type: 'all', query: '' };
 
 // ─── Helpers ────────────────────────────────────────
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function timeAgo(d) {
   if (!d) return '—';
   const dt = new Date(d);
   if (isNaN(dt)) return d;
   const s = (Date.now() - dt.getTime()) / 1000;
   if (s < 60) return 'just now';
-  if (s < 3600) return Math.round(s/60) + 'm ago';
-  if (s < 86400) return Math.round(s/3600) + 'h ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
   return dt.toLocaleDateString();
 }
 
-// ─── View Switching ─────────────────────────────────
-function switchView(viewId) {
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.querySelector(`.nav-item[data-view="${viewId}"]`)?.classList.add('active');
-  
-  document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
+function scoreClass(score) {
+  if (score >= 0.7) return 'score-high';
+  if (score >= 0.4) return 'score-mid';
+  return 'score-low';
+}
+
+function typeClass(type) {
+  const map = {
+    style: 'tag-type-style',
+    architecture: 'tag-type-architecture',
+    bugfix: 'tag-type-bugfix',
+    api_pattern: 'tag-type-api_pattern',
+    preference: 'tag-type-preference',
+    general: 'tag-type-general',
+  };
+  return map[type] || 'tag-type-general';
+}
+
+function scopeClass(scope) {
+  const map = {
+    user: 'tag-scope-user',
+    project: 'tag-scope-project',
+    org: 'tag-scope-org',
+    strategy: 'tag-scope-strategy',
+  };
+  return map[scope] || 'tag-scope-user';
+}
+
+// ─── Tab Switching ──────────────────────────────────
+function switchTab(viewId) {
+  document.querySelectorAll('.tab').forEach((el) => el.classList.remove('active'));
+  document.querySelector(`.tab[data-view="${viewId}"]`)?.classList.add('active');
+
+  document.querySelectorAll('.view').forEach((el) => el.classList.remove('active'));
   document.getElementById(`view-${viewId}`)?.classList.add('active');
+
+  if (viewId === 'explore' && searchState.query) {
+    doSearch();
+  }
+}
+
+// ─── Live Toggle ────────────────────────────────────
+function toggleLive() {
+  IS_LIVE = !IS_LIVE;
+  const indicator = document.getElementById('liveToggle');
+  const text = document.getElementById('liveText');
+
+  if (IS_LIVE) {
+    indicator.classList.remove('off');
+    text.textContent = 'Live';
+    startLiveRefresh();
+  } else {
+    indicator.classList.add('off');
+    text.textContent = 'Paused';
+    stopLiveRefresh();
+  }
+}
+
+function startLiveRefresh() {
+  if (LIVE_INTERVAL) clearInterval(LIVE_INTERVAL);
+  LIVE_INTERVAL = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      loadAllData(true);
+    }
+  }, 5000);
+}
+
+function stopLiveRefresh() {
+  if (LIVE_INTERVAL) {
+    clearInterval(LIVE_INTERVAL);
+    LIVE_INTERVAL = null;
+  }
 }
 
 // ─── Data Loading ───────────────────────────────────
-async function loadAllData() {
-  const btn = document.getElementById('refreshBtn');
-  const icon = document.getElementById('refreshIcon');
-  const loader = document.getElementById('loading');
-  
-  btn.disabled = true;
-  icon.classList.add('spin');
-  loader.classList.remove('hidden');
+async function loadAllData(silent = false) {
+  if (!silent) {
+    // Show loading only on initial load
+  }
 
   try {
     const [memRes, sesRes, statusRes, stratRes] = await Promise.all([
-      fetch('/api/memories').then(r => r.json()).catch(() => ({ memories: [] })),
-      fetch('/api/session').then(r => r.json()).catch(() => ({ sessionId: '', events: [] })),
-      fetch('/api/status').then(r => r.json()).catch(() => ({})),
-      fetch('/api/strategies').then(r => r.json()).catch(() => ({ strategies: [] })),
+      fetch('/api/memories').then((r) => r.json()).catch(() => ({ memories: [] })),
+      fetch('/api/session').then((r) => r.json()).catch(() => ({ events: [] })),
+      fetch('/api/status').then((r) => r.json()).catch(() => ({})),
+      fetch('/api/strategies').then((r) => r.json()).catch(() => ({ strategies: [] })),
     ]);
 
-    // Merge and dedup
     const seen = new Set();
     ALL_MEMORIES = [];
     const rawAll = [...(memRes.memories || []), ...(stratRes.strategies || [])];
     for (const m of rawAll) {
       if (!seen.has(m.memoryId)) {
         seen.add(m.memoryId);
-        
-        // Enhance classification for UI
         if (m.scope === 'strategy' || m.source === 'auto-extracted') {
-          m.uiCat = m.strategyType || 'semantic'; 
+          m.uiCat = m.strategyType || 'semantic';
         } else {
           m.uiCat = 'manual';
         }
-        
         ALL_MEMORIES.push(m);
       }
     }
-    
-    SESSION_DATA = sesRes;
-    STATUS_DATA = statusRes;
 
-    renderAnalytics();
-    renderKnowledgeBase();
-    renderExperienceLog();
-    renderRawTable();
-    renderSystem();
+    SESSION_EVENTS = sesRes.events || [];
+    STATUS = statusRes;
 
+    renderNow();
+    renderProfile();
+    updateBadge();
   } catch (err) {
     console.error('Failed to load data:', err);
-  } finally {
-    btn.disabled = false;
-    icon.classList.remove('spin');
-    loader.classList.add('hidden');
   }
 }
 
-// ─── Analytics View ─────────────────────────────────
-function renderAnalytics() {
-  const semantic = ALL_MEMORIES.filter(m => m.uiCat === 'semantic').length;
-  const prefs = ALL_MEMORIES.filter(m => m.uiCat === 'preference').length;
-  const orgShared = ALL_MEMORIES.filter(m => m.scope === 'org').length;
-  
-  // Calculate this week's growth (simplified)
-  const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-  const recentCount = ALL_MEMORIES.filter(m => new Date(m.createdAt).getTime() > oneWeekAgo).length;
+// ─── Now View ───────────────────────────────────────
+function renderNow() {
+  // Stats
+  const autoCount = ALL_MEMORIES.filter((m) => m.source === 'auto-extracted').length;
+  const manualCount = ALL_MEMORIES.length - autoCount;
+  const topScore = ALL_MEMORIES.length
+    ? Math.max(...ALL_MEMORIES.filter((m) => typeof m.score === 'number').map((m) => m.score || 0))
+    : 0;
 
-  document.getElementById('kpi-growth').textContent = '+' + recentCount;
-  document.getElementById('kpi-semantic').textContent = semantic;
-  document.getElementById('kpi-prefs').textContent = prefs;
-  document.getElementById('kpi-shared').textContent = orgShared;
+  document.getElementById('stat-total').textContent = ALL_MEMORIES.length;
+  document.getElementById('stat-auto').textContent = autoCount;
+  document.getElementById('stat-session').textContent = SESSION_EVENTS.length;
+  document.getElementById('stat-session-meta').textContent = `Events in ${STATUS.session?.sessionId?.slice(0, 20) || 'current session'}...`;
+  document.getElementById('stat-topscore').textContent = topScore ? topScore.toFixed(2) : '-';
 
-  // Render Charts
-  renderAccumulationChart();
-  renderScopeDonut();
-  renderTopInsights();
-}
+  // Recently learned (top 8 by recency)
+  const recent = [...ALL_MEMORIES]
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, 8);
 
-function renderAccumulationChart() {
-  const dayMap = {};
-  ALL_MEMORIES.forEach(m => {
-    if (!m.createdAt) return;
-    const d = new Date(m.createdAt).toISOString().slice(0, 10);
-    dayMap[d] = (dayMap[d] || 0) + 1;
-  });
-  
-  const days = Object.keys(dayMap).sort();
-  let cumulative = 0;
-  const data = days.map(d => {
-    cumulative += dayMap[d];
-    return cumulative;
-  });
-
-  const ctx = document.getElementById('accumulationChart');
-  if (accumulationChart) accumulationChart.destroy();
-  accumulationChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: days.map(d => d.slice(5)), // MM-DD
-      datasets: [{
-        label: 'Total Knowledge Base Size',
-        data: data,
-        borderColor: '#58a6ff',
-        backgroundColor: 'rgba(88, 166, 255, 0.1)',
-        fill: true,
-        tension: 0.3
-      }]
-    },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
-        y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' }, beginAtZero: true }
-      }
-    }
-  });
-}
-
-function renderTopInsights() {
-  const top = ALL_MEMORIES
-    .filter(m => typeof m.score === 'number')
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
-
-  const container = document.getElementById('topInsights');
-  if (!container) return;
-
-  if (top.length === 0) {
-    container.innerHTML = '<div style="color:#8b949e">No scored memories yet.</div>';
-    return;
+  const recentEl = document.getElementById('now-recent');
+  if (recent.length === 0) {
+    recentEl.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">&#129504;</div>
+        <h3>No memories yet</h3>
+        <p>Start using your AI coding agent. Memories will appear here as they are saved.</p>
+      </div>`;
+  } else {
+    recentEl.innerHTML = recent.map((m) => renderMemoryCard(m)).join('');
   }
 
-  container.innerHTML = top.map(m => `
-    <div style="margin-bottom:8px; padding:8px; background:#161b22; border-radius:6px; border-left:3px solid #58a6ff;">
-      <div style="font-size:12px; color:#58a6ff; margin-bottom:4px">score: ${m.score.toFixed(3)} · ${m.scope}</div>
-      <div style="font-size:13px; color:#c9d1d9">${esc(m.content).slice(0, 120)}${m.content.length > 120 ? '...' : ''}</div>
-    </div>
-  `).join('');
-}
+  // Live feed
+  const feedEl = document.getElementById('now-feed');
+  const feedItems = [];
 
-function renderScopeDonut() {
-  const counts = { user: 0, project: 0, org: 0, auto: 0 };
-  ALL_MEMORIES.forEach(m => {
-    if (m.source === 'auto-extracted') counts.auto++;
-    else counts[m.scope] = (counts[m.scope] || 0) + 1;
+  // Add session events
+  SESSION_EVENTS.slice(-5).reverse().forEach((evt) => {
+    const msg = evt.messages?.[0]?.content?.slice(0, 80) || 'Conversation event';
+    feedItems.push({
+      icon: '&#128172;',
+      bg: 'rgba(88,166,255,0.12)',
+      text: msg + (msg.length >= 80 ? '...' : ''),
+      meta: `Session event · ${timeAgo(evt.timestamp)}`,
+    });
   });
 
-  const ctx = document.getElementById('scopeChart');
-  if (scopeChart) scopeChart.destroy();
-  scopeChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['Auto (Semantic)', 'User (Private)', 'Project', 'Org (Shared)'],
-      datasets: [{
-        data: [counts.auto, counts.user, counts.project, counts.org],
-        backgroundColor: ['#8957e5', '#2f81f7', '#3fb950', '#d29922'],
-        borderWidth: 0
-      }]
-    },
-    options: { cutout: '70%', plugins: { legend: { position: 'right', labels: { color: '#c9d1d9' } } } }
+  // Add recent memories
+  ALL_MEMORIES.slice(0, 5).forEach((m) => {
+    feedItems.push({
+      icon: m.source === 'auto-extracted' ? '&#9889;' : '&#128221;',
+      bg: m.source === 'auto-extracted' ? 'rgba(163,113,247,0.12)' : 'rgba(88,166,255,0.12)',
+      text: (m.content || '').slice(0, 80) + ((m.content || '').length > 80 ? '...' : ''),
+      meta: `${m.source === 'auto-extracted' ? 'Auto-extracted' : 'Manual'} · ${m.scope} · ${timeAgo(m.createdAt)}`,
+    });
   });
-}
 
-// ─── Knowledge Base (Semantic) View ─────────────────
-function renderKnowledgeBase() {
-  document.getElementById('cat-all').textContent = ALL_MEMORIES.length;
-  document.getElementById('cat-semantic').textContent = ALL_MEMORIES.filter(m => m.uiCat === 'semantic').length;
-  document.getElementById('cat-prefs').textContent = ALL_MEMORIES.filter(m => m.uiCat === 'preference').length;
-  document.getElementById('cat-summary').textContent = ALL_MEMORIES.filter(m => m.uiCat === 'summary').length;
-  document.getElementById('cat-manual').textContent = ALL_MEMORIES.filter(m => m.uiCat === 'manual').length;
-  
-  filterKnowledgeContent();
-}
-
-function filterKnowledge(cat, el) {
-  activeKnowledgeCat = cat;
-  document.querySelectorAll('.cat-item').forEach(li => li.classList.remove('active'));
-  el.classList.add('active');
-  filterKnowledgeContent();
-}
-
-function filterKnowledgeContent() {
-  const q = document.getElementById('knowledgeSearch').value.toLowerCase();
-  const grid = document.getElementById('knowledge-grid');
-  
-  let filtered = ALL_MEMORIES;
-  if (activeKnowledgeCat !== 'all') {
-    filtered = filtered.filter(m => m.uiCat === activeKnowledgeCat);
-  }
-  
-  if (q) {
-    filtered = filtered.filter(m => (m.content||'').toLowerCase().includes(q));
-  }
-  
-  grid.innerHTML = filtered.map(m => {
-    const typeLabel = m.uiCat === 'semantic' ? '🧠 Core Fact' : 
-                      m.uiCat === 'preference' ? '👤 Preference' : 
-                      m.uiCat === 'summary' ? '📝 Summary' : '✍️ Manual';
-    
-    const scoreLabel = typeof m.score === 'number' ? `score: ${m.score.toFixed(3)}` : '';
-    return `
-      <div class="k-card type-${m.uiCat}">
-        <div class="k-header">
-          <span class="k-badge">${typeLabel}</span>
-          <span class="k-badge" style="background:transparent; color:#8b949e">${m.scope}</span>
+  if (feedItems.length === 0) {
+    feedEl.innerHTML = `
+      <div class="empty-state" style="padding: 30px;">
+        <p>No activity yet. Save a conversation to see the feed.</p>
+      </div>`;
+  } else {
+    feedEl.innerHTML = feedItems
+      .map(
+        (item) => `
+      <div class="feed-item">
+        <div class="icon" style="background: ${item.bg}">${item.icon}</div>
+        <div class="body">
+          <div class="text">${esc(item.text)}</div>
+          <div class="meta">${esc(item.meta)}</div>
         </div>
-        <div class="k-content">${esc(m.content)}</div>
-        <div class="k-footer">
-          <span>${esc(m.memoryId).slice(0, 12)}...</span>
-          <span style="color:#58a6ff">${scoreLabel}</span>
-          <span>${timeAgo(m.createdAt)}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
+      </div>`
+      )
+      .join('');
+  }
 }
 
-// ─── Experience Log (Episodic) View ─────────────────
-function renderExperienceLog() {
-  const events = SESSION_DATA.events || [];
-  document.getElementById('gauge-evt-val').textContent = events.length;
-  document.getElementById('gauge-events').style.width = Math.min(100, (events.length / 50) * 100) + '%';
-  
-  const container = document.getElementById('timeline-feed');
-  
-  if (events.length === 0) {
-    container.innerHTML = `<div style="color:#8b949e; padding: 20px;">No session events recorded yet.</div>`;
-    return;
-  }
-  
-  // Sort oldest first for a timeline view
-  const sorted = [...events].sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-  
-  container.innerHTML = sorted.map((evt, idx) => {
-    const msgs = (evt.messages || []).map(m => {
-      const cls = m.role.toLowerCase() === 'user' ? 'msg-user' : 'msg-assistant';
-      return `<div class="msg-bubble ${cls}"><strong>${esc(m.role)}:</strong><br/>${esc(m.content)}</div>`;
-    }).join('');
-    
-    // Simulate extraction linkage (visually hint that events lead to knowledge)
-    // In a real advanced setup, you'd match trace IDs.
-    let extractionHtml = '';
-    if (idx === sorted.length - 1 && ALL_MEMORIES.length > 0) {
-       extractionHtml = `
-         <div class="extraction-link">
-           <span>🤖</span>
-           <span><strong>Distillation Triggered:</strong> AgentCore strategies evaluated this context and extracted facts.</span>
-         </div>`;
+// ─── Explore View ───────────────────────────────────
+async function doSearch() {
+  const query = document.getElementById('explore-search').value.trim();
+  if (!query) return;
+
+  searchState.query = query;
+  const resultsEl = document.getElementById('explore-results');
+  resultsEl.innerHTML = '<div class="loading"><div class="spinner"></div>Searching...</div>';
+
+  try {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (searchState.scope !== 'all') params.set('scope', searchState.scope);
+    if (searchState.type !== 'all') params.set('type', searchState.type);
+
+    const res = await fetch(`/api/search?${params.toString()}`);
+    const data = await res.json();
+    const results = data.results || [];
+
+    if (results.length === 0) {
+      resultsEl.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">&#128270;</div>
+          <h3>No results</h3>
+          <p>Try a different query or adjust filters. The AI might not have learned about this topic yet.</p>
+        </div>`;
+      return;
     }
 
-    return `
-      <div class="evt-block">
-        <div class="evt-time">${new Date(evt.timestamp).toLocaleString()} | ID: ${esc(evt.eventId)}</div>
-        <div style="display:flex; flex-direction:column;">
-          ${msgs}
+    resultsEl.innerHTML = results.map((m) => renderMemoryCard(m, true)).join('');
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="empty-state"><h3>Search failed</h3><p>${esc(err.message)}</p></div>`;
+  }
+}
+
+function setFilter(category, value) {
+  if (category === 'scope') searchState.scope = value;
+  if (category === 'type') searchState.type = value;
+
+  document.querySelectorAll(`.filter-pill[data-filter="${category}"]`).forEach((el) => {
+    el.classList.toggle('active', el.dataset.value === value);
+  });
+
+  if (searchState.query) doSearch();
+}
+
+// ─── Profile View ───────────────────────────────────
+function renderProfile() {
+  // Preferences
+  const preferences = ALL_MEMORIES.filter((m) => {
+    const mt = m.memoryType;
+    return mt === 'style' || mt === 'preference';
+  });
+
+  const prefEl = document.getElementById('profile-preferences');
+  if (preferences.length === 0) {
+    prefEl.innerHTML = `<p style="color: var(--text-muted); font-size: 13px;">No preferences learned yet. The AI will extract your coding style over time.</p>`;
+  } else {
+    prefEl.innerHTML = preferences
+      .slice(0, 8)
+      .map(
+        (m) => `
+      <div class="pref-item">
+        <div class="bullet"></div>
+        <div>
+          <div class="text">${esc((m.content || '').slice(0, 120))}${(m.content || '').length > 120 ? '...' : ''}</div>
+          <div class="source">${m.memoryType} · ${m.scope} · ${timeAgo(m.createdAt)}</div>
         </div>
-        ${extractionHtml}
+      </div>`
+      )
+      .join('');
+  }
+
+  // Languages
+  const langCounts = {};
+  ALL_MEMORIES.forEach((m) => {
+    if (m.language) {
+      langCounts[m.language] = (langCounts[m.language] || 0) + 1;
+    }
+  });
+
+  const langEl = document.getElementById('profile-languages');
+  const langs = Object.entries(langCounts).sort((a, b) => b[1] - a[1]);
+  if (langs.length === 0) {
+    langEl.innerHTML = `<span style="color: var(--text-muted); font-size: 13px;">No languages detected yet.</span>`;
+  } else {
+    langEl.innerHTML = langs
+      .map(
+        ([lang, count]) => `
+      <div class="lang-tag">
+        ${esc(lang)}
+        <span class="count">${count}</span>
+      </div>`
+      )
+      .join('');
+  }
+
+  // Stats
+  const statsEl = document.getElementById('profile-stats');
+  const projectCounts = {};
+  ALL_MEMORIES.forEach((m) => {
+    if (m.projectName) {
+      projectCounts[m.projectName] = (projectCounts[m.projectName] || 0) + 1;
+    }
+  });
+
+  statsEl.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+        <span style="color: var(--text-muted);">Memories saved</span>
+        <span style="font-weight: 600;">${ALL_MEMORIES.length}</span>
       </div>
-    `;
-  }).join('');
+      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+        <span style="color: var(--text-muted);">Auto-extracted</span>
+        <span style="font-weight: 600;">${ALL_MEMORIES.filter((m) => m.source === 'auto-extracted').length}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+        <span style="color: var(--text-muted);">Manual saves</span>
+        <span style="font-weight: 600;">${ALL_MEMORIES.filter((m) => m.source !== 'auto-extracted').length}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; padding: 8px 0;">
+        <span style="color: var(--text-muted);">Unique projects</span>
+        <span style="font-weight: 600;">${Object.keys(projectCounts).length}</span>
+      </div>
+    </div>
+  `;
+
+  // Projects
+  const projEl = document.getElementById('profile-projects');
+  const projects = Object.entries(projectCounts).sort((a, b) => b[1] - a[1]);
+  if (projects.length === 0) {
+    projEl.innerHTML = `<p style="color: var(--text-muted); font-size: 13px;">No project memories yet.</p>`;
+  } else {
+    projEl.innerHTML = projects
+      .map(
+        ([proj, count]) => `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);">
+        <span style="font-weight: 500;">${esc(proj)}</span>
+        <span style="font-size: 12px; color: var(--text-muted);">${count} memories</span>
+      </div>`
+      )
+      .join('');
+  }
 }
 
-// ─── Raw Data Explorer ──────────────────────────────
-function renderRawTable() {
-  const q = document.getElementById('rawSearch').value.toLowerCase();
-  const scope = document.getElementById('rawScopeFilter').value;
-  
-  let filtered = ALL_MEMORIES;
-  if (scope !== 'all') filtered = filtered.filter(m => m.scope === scope || (scope === 'strategy' && m.source === 'auto-extracted'));
-  if (q) filtered = filtered.filter(m => (m.content||'').toLowerCase().includes(q) || m.memoryId.toLowerCase().includes(q));
-  
-  const tbody = document.getElementById('raw-table-body');
-  tbody.innerHTML = filtered.map(m => `
-    <tr>
-      <td title="${esc(m.memoryId)}">${esc(m.memoryId).slice(0, 8)}...</td>
-      <td>${esc(m.scope)}</td>
-      <td class="td-snippet" title="${esc(m.content)}">${esc(m.content)}</td>
-      <td>${esc(m.source)}</td>
-      <td>${new Date(m.createdAt).toLocaleDateString()}</td>
-    </tr>
-  `).join('');
-}
+// ─── Memory Card Renderer ───────────────────────────
+function renderMemoryCard(m, showScore = false) {
+  const typeTag = m.memoryType
+    ? `<span class="tag ${typeClass(m.memoryType)}">${m.memoryType.replace('_', ' ')}</span>`
+    : '';
+  const scopeTag = `<span class="tag ${scopeClass(m.scope)}">${m.scope}</span>`;
+  const scoreTag =
+    showScore && typeof m.score === 'number'
+      ? `<span class="score ${scoreClass(m.score)}">${m.score.toFixed(2)}</span>`
+      : '';
 
-// ─── System Status View ─────────────────────────────
-function renderSystem() {
-  const s = STATUS_DATA;
-  const grid = document.getElementById('system-grid');
-  
-  if (!s.memoryId) return;
-
-  grid.innerHTML = `
-    <div class="sys-card">
-      <h3>AWS Resources</h3>
-      <div class="sys-row"><span>Memory ARN</span> <span class="sys-val" title="${s.memoryId}">${s.memoryId.split('/').pop()}</span></div>
-      <div class="sys-row"><span>Actor ID</span> <span class="sys-val">${s.actorId}</span></div>
-      <div class="sys-row"><span>Org ID</span> <span class="sys-val">${s.orgId}</span></div>
-    </div>
-    <div class="sys-card">
-      <h3>Active Session</h3>
-      <div class="sys-row"><span>Session ID</span> <span class="sys-val">${s.session?.sessionId}</span></div>
-      <div class="sys-row"><span>Logged Events</span> <span class="sys-val">${s.session?.eventCount}</span></div>
-    </div>
-    <div class="sys-card">
-      <h3>Namespaces Configured</h3>
-      <div class="sys-row"><span>User Path</span> <span class="sys-val" style="font-size:11px">${s.namespaces?.user}</span></div>
-      <div class="sys-row"><span>Org Path</span> <span class="sys-val" style="font-size:11px">${s.namespaces?.org}</span></div>
-      <div class="sys-row"><span>Strategy Base</span> <span class="sys-val" style="font-size:11px">${s.namespaces?.strategyPath}</span></div>
+  return `
+    <div class="memory-card">
+      <div class="card-header">
+        <div class="tags">${typeTag}${scopeTag}</div>
+        ${scoreTag}
+      </div>
+      <div class="content-text">${esc(m.content || '')}</div>
+      <div class="card-footer">
+        <span>${esc(m.memoryId).slice(0, 8)}...</span>
+        <span>${timeAgo(m.createdAt)}</span>
+      </div>
     </div>
   `;
 }
 
+// ─── Badge ──────────────────────────────────────────
+function updateBadge() {
+  const badge = document.getElementById('badge-now');
+  if (badge) badge.textContent = ALL_MEMORIES.length;
+}
+
 // ─── Boot ───────────────────────────────────────────
 loadAllData();
+startLiveRefresh();

@@ -13,10 +13,11 @@ export function launchDashboardTool() {
   return {
     name: LAUNCH_DASHBOARD_TOOL_NAME,
     description:
-      'Launch the Org Memory visual dashboard in your browser. ' +
-      'Opens a local web UI at http://localhost:3001 showing all your memories as cards, ' +
-      'with scope filters, search, charts (scope distribution, creation timeline), and a word cloud. ' +
-      'Safe to call multiple times — if the dashboard is already running, returns the URL immediately.',
+      'Launch the Memory Lens dashboard in your browser. ' +
+      'Opens a local web UI at http://localhost:3001 showing what the AI knows: ' +
+      'live memory feed, interactive semantic search with relevance scores, ' +
+      'and your personal knowledge profile. ' +
+      'Safe to call multiple times — if already running, returns the URL immediately.',
     inputSchema: {
       type: 'object',
       properties: {},

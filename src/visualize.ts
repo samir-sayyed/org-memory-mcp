@@ -1,13 +1,13 @@
 /**
- * Memory Visualization Dashboard Server
+ * Memory Lens Dashboard Server
  * Serves a live dashboard at http://localhost:3001
- * No external dependencies — uses Node.js built-in http module.
  *
  * API endpoints:
- *   /api/memories   — Long-term memory records (manual + all namespaces)
- *   /api/session    — Short-term events from the current session
- *   /api/status     — Memory system health & stats
- *   /api/strategies — Auto-extracted records from strategy namespaces
+ *   GET /api/memories       — All long-term memory records
+ *   GET /api/strategies     — Auto-extracted strategy records
+ *   GET /api/session        — Current session events
+ *   GET /api/status         — System health & stats
+ *   GET /api/search?q=...   — Semantic search with filters
  */
 
 import 'dotenv/config';
@@ -24,6 +24,7 @@ import {
   getOrgRootNamespace,
   getOrgSharedNamespace,
   getStrategyNamespacePath,
+  resolveNamespace,
 } from './utils/namespaces.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,61 +39,36 @@ const config = loadConfig();
 initSession(config.sessionId);
 const client = new BedrockMemoryClient(config);
 
-interface EnrichedMemory {
-  memoryId: string;
-  content: string;
-  namespace: string;
-  scope: 'user' | 'project' | 'org' | 'strategy';
-  projectName: string | null;
-  source: 'manual' | 'auto-extracted';
-  memoryType: string | null;
-  strategyType: 'semantic' | 'preference' | 'summary' | null;
-  language: string | null;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-  orgId: string;
-  actorId: string;
-}
+// ── Data Helpers ────────────────────────────────────
 
-function deriveScope(namespace: string): { scope: 'user' | 'project' | 'org' | 'strategy'; projectName: string | null; strategyType: 'semantic' | 'preference' | 'summary' | null } {
-  if (namespace.startsWith('/strategy/')) {
-    let strategyType: 'semantic' | 'preference' | 'summary' | null = null;
-    // Attempt to infer from common naming conventions or path structures if metadata isn't enough
-    // In actual AWS AgentCore, you'd usually map the strategy ID to its type.
-    // For visualization purposes, we might guess based on content/metadata later, but let's set a default.
-    return { scope: 'strategy', projectName: null, strategyType: 'semantic' }; // Will be refined in enrichRecord
-  }
-  if (namespace.includes('/user/')) return { scope: 'user', projectName: null, strategyType: null };
-  if (namespace.includes('/project/')) {
-    const match = namespace.match(/\/project\/([^/]+)\//);
-    return { scope: 'project', projectName: match ? match[1] : null, strategyType: null };
-  }
-  if (namespace.includes('/shared/')) return { scope: 'org', projectName: null, strategyType: null };
-  return { scope: 'user', projectName: null, strategyType: null };
-}
-
-function enrichRecord(r: any): EnrichedMemory {
+function enrichRecord(r: any) {
   const ns = (r.namespaces?.[0] || '') as string;
-  const { scope, projectName } = deriveScope(ns);
   const meta = (r.metadata || {}) as Record<string, { stringValue?: string }>;
 
+  let scope: 'user' | 'project' | 'org' | 'strategy' = 'user';
+  let projectName: string | null = null;
+  let source: 'manual' | 'auto-extracted' = 'manual';
   let strategyType: 'semantic' | 'preference' | 'summary' | null = null;
-  if (scope === 'strategy') {
-    // Attempt to categorize based on typical metadata or namespace hints if available
+
+  if (ns.startsWith('/strategy/')) {
+    scope = 'strategy';
+    source = 'auto-extracted';
     const stratName = (meta['strategyName']?.stringValue || ns).toLowerCase();
     if (stratName.includes('pref')) strategyType = 'preference';
     else if (stratName.includes('sum')) strategyType = 'summary';
     else strategyType = 'semantic';
+  } else if (ns.includes('/project/')) {
+    scope = 'project';
+    const match = ns.match(/\/project\/([^/]+)\//);
+    projectName = match ? match[1] : null;
+  } else if (ns.includes('/shared/')) {
+    scope = 'org';
   }
 
   const createdAt =
     meta['x-amz-agentcore-memory-createdAt']?.stringValue ||
+    meta['createdAt']?.stringValue ||
     (r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt || ''));
-
-  const updatedAt =
-    meta['x-amz-agentcore-memory-updatedAt']?.stringValue ||
-    createdAt;
 
   const tagsRaw = meta['tags']?.stringValue || '';
   let tags: string[] = [];
@@ -100,13 +76,10 @@ function enrichRecord(r: any): EnrichedMemory {
     try {
       const parsed = JSON.parse(tagsRaw);
       if (Array.isArray(parsed)) {
-        tags = parsed
-          .filter((tag): tag is string => typeof tag === 'string')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
+        tags = parsed.filter((t: unknown): t is string => typeof t === 'string');
       }
     } catch {
-      tags = tagsRaw.split(',').map((tag: string) => tag.trim()).filter(Boolean);
+      tags = tagsRaw.split(',').map((t: string) => t.trim()).filter(Boolean);
     }
   }
 
@@ -116,67 +89,52 @@ function enrichRecord(r: any): EnrichedMemory {
     namespace: ns,
     scope,
     projectName,
-    source: scope === 'strategy' ? 'auto-extracted' : 'manual',
+    source,
     memoryType: meta['memory_type']?.stringValue || null,
     strategyType,
     language: meta['language']?.stringValue || null,
     tags,
+    score: r.score,
     createdAt,
-    updatedAt,
     orgId: meta['orgId']?.stringValue || config.orgId,
     actorId: meta['actorId']?.stringValue || config.actorId,
   };
 }
 
-async function fetchAllMemories(): Promise<EnrichedMemory[]> {
+async function fetchAllMemories() {
   const orgRootNs = getOrgRootNamespace(config);
-  let manualRecords: any[] = [];
-
+  let records: any[] = [];
   try {
-    manualRecords = await client.listMemoryRecordsByPath(orgRootNs).catch(() => []);
-  } catch (error: any) {
-    throw new Error(`Failed to load memories from Bedrock AgentCore: ${error.message}`);
-  }
+    records = await client.listMemoryRecordsByPath(orgRootNs).catch(() => []);
+  } catch { /* empty */ }
 
-  const allRecords = manualRecords;
-
-  // Deduplicate by memoryId
   const seen = new Set<string>();
-  const unique = allRecords.filter((r) => {
-    const id = r.memoryRecordId || '';
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-
-  return unique.map(enrichRecord);
+  return records
+    .filter((r) => {
+      const id = r.memoryRecordId || '';
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .map(enrichRecord);
 }
 
-async function fetchStrategyMemories(): Promise<EnrichedMemory[]> {
+async function fetchStrategyMemories() {
   try {
     const strategyPath = getStrategyNamespacePath(config);
-    const results = await client.retrieveMemoryRecordsByPath(
-      'all strategy extracted records',
-      strategyPath,
-      50
-    );
+    const results = await client.retrieveMemoryRecordsByPath('all', strategyPath, 100);
     return results.map(enrichRecord);
   } catch {
     return [];
   }
 }
 
-async function fetchSessionEvents(): Promise<any[]> {
-  const currentSessionId = getActiveSessionId();
-  const sessionIds = [currentSessionId];
-  
-  let allEvents: any[] = [];
-  
-  for (const sid of sessionIds) {
-    try {
-      const events = await client.listEvents(sid, undefined, 100);
-      const mappedEvents = events.map((event: any) => {
-        const messages: any[] = [];
+async function fetchSessionEvents() {
+  const sid = getActiveSessionId();
+  try {
+    const events = await client.listEvents(sid, undefined, 50);
+    return events.map((event: any) => {
+      const messages: any[] = [];
       if (Array.isArray(event.payload)) {
         for (const item of event.payload) {
           if (item.conversational) {
@@ -187,37 +145,35 @@ async function fetchSessionEvents(): Promise<any[]> {
           }
         }
       }
-        return {
-          eventId: event.eventId || '',
-          sessionId: sid,
-          timestamp: event.eventTimestamp?.toISOString?.() || '',
-          messages,
-          metadata: Object.fromEntries(
-            Object.entries(event.metadata || {}).map(([k, v]: [string, any]) => [
-              k,
-              v?.stringValue || v,
-            ])
-          ),
-        };
-      });
-      allEvents = allEvents.concat(mappedEvents);
-    } catch { /* ignore if session doesn't exist */ }
+      return {
+        eventId: event.eventId || '',
+        sessionId: sid,
+        timestamp: event.eventTimestamp?.toISOString?.() || '',
+        messages,
+        metadata: Object.fromEntries(
+          Object.entries(event.metadata || {}).map(([k, v]: [string, any]) => [
+            k,
+            v?.stringValue || v,
+          ])
+        ),
+      };
+    });
+  } catch {
+    return [];
   }
-  return allEvents;
 }
 
-async function fetchStatus(): Promise<any> {
-  const sessionId = getActiveSessionId();
+async function fetchStatus() {
+  const sid = getActiveSessionId();
   const userNs = getUserNamespace(config);
   const orgNs = getOrgSharedNamespace(config);
 
   let sessionEventCount = 0;
   let userRecordCount = 0;
   let orgRecordCount = 0;
-  let strategyRecordCount = 0;
 
   try {
-    const events = await client.listEvents(sessionId);
+    const events = await client.listEvents(sid);
     sessionEventCount = events.length;
   } catch { /* empty */ }
 
@@ -231,37 +187,38 @@ async function fetchStatus(): Promise<any> {
     orgRecordCount = orgRecords.length;
   } catch { /* empty */ }
 
-  try {
-    const strategyPath = getStrategyNamespacePath(config);
-    const r = await client.retrieveMemoryRecordsByPath('status', strategyPath, 1);
-    strategyRecordCount = r.length;
-  } catch { /* empty */ }
-
   return {
     memoryId: client.getMemoryId(),
     actorId: config.actorId,
+    actorRole: config.actorRole,
     orgId: config.orgId,
     session: {
-      sessionId,
+      sessionId: sid,
       eventCount: sessionEventCount,
     },
     longTermMemory: {
       userRecords: userRecordCount,
       orgRecords: orgRecordCount,
-      strategyRecords: strategyRecordCount,
       total: userRecordCount + orgRecordCount,
-    },
-    namespaces: {
-      user: userNs,
-      org: orgNs,
-      strategyPath: getStrategyNamespacePath(config),
     },
   };
 }
 
+// ── Server ──────────────────────────────────────────
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
 
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  // API: All memories
   if (url.pathname === '/api/memories') {
     try {
       const memories = await fetchAllMemories();
@@ -274,6 +231,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API: Strategy memories
   if (url.pathname === '/api/strategies') {
     try {
       const strategies = await fetchStrategyMemories();
@@ -286,6 +244,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API: Session events
   if (url.pathname === '/api/session') {
     try {
       const events = await fetchSessionEvents();
@@ -302,6 +261,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // API: Status
   if (url.pathname === '/api/status') {
     try {
       const status = await fetchStatus();
@@ -314,7 +274,57 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Serve static files from visualizer directory
+  // API: Search
+  if (url.pathname === '/api/search') {
+    try {
+      const query = url.searchParams.get('q') || '';
+      const scope = url.searchParams.get('scope') || 'all';
+      const type = url.searchParams.get('type') || 'all';
+
+      if (!query) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing query parameter: q' }));
+        return;
+      }
+
+      const namespace = resolveNamespace(
+        config,
+        scope as 'user' | 'project' | 'org' | 'all',
+        undefined
+      );
+
+      let results: any[] = [];
+      if (scope === 'strategy') {
+        const strategyPath = getStrategyNamespacePath(config);
+        results = await client.retrieveMemoryRecordsByPath(query, strategyPath, 20);
+      } else {
+        results = await client.retrieveMemoryRecords(query, namespace, 20);
+      }
+
+      let enriched = results.map(enrichRecord);
+
+      // Client-side type filter (AgentCore doesn't filter by metadata on retrieve)
+      if (type !== 'all') {
+        enriched = enriched.filter((m) => m.memoryType === type);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        query,
+        scope,
+        type,
+        count: enriched.length,
+        results: enriched,
+        fetchedAt: new Date().toISOString(),
+      }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Static files
   const MIME: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
@@ -352,7 +362,6 @@ server.on('error', (error: NodeJS.ErrnoException) => {
     );
     process.exit(1);
   }
-
   console.error(`Dashboard server failed to start: ${error.message}`);
   process.exit(1);
 });
@@ -360,10 +369,9 @@ server.on('error', (error: NodeJS.ErrnoException) => {
 server.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`\n  ┌─────────────────────────────────────────┐`);
-  console.log(`  │   Org Memory Dashboard                  │`);
+  console.log(`  │   Memory Lens Dashboard                 │`);
   console.log(`  │   ${url}              │`);
   console.log(`  └─────────────────────────────────────────┘\n`);
-  // Auto-open in default browser (cross-platform)
   const { platform } = process;
   const openCmd = platform === 'darwin' ? `open "${url}"`
     : platform === 'win32' ? `start "" "${url}"`

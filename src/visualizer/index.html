@@ -3,220 +3,587 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Org Memory Observability</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css" />
+  <title>Memory Lens</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-elevated: #161b22;
+      --bg-card: #1c2128;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88,166,255,0.15);
+      --success: #3fb950;
+      --warning: #d29922;
+      --danger: #f85149;
+      --semantic: #a371f7;
+      --preference: #f0883e;
+      --manual: #58a6ff;
+      --org: #3fb950;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-brand .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--semantic));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .header-brand h1 {
+      font-size: 18px; font-weight: 600; letter-spacing: -0.3px;
+    }
+
+    .header-brand .subtitle {
+      font-size: 12px; color: var(--text-muted); margin-top: -2px;
+    }
+
+    .header-actions {
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .live-indicator {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-muted);
+      cursor: pointer; user-select: none;
+    }
+
+    .live-indicator .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+
+    .live-indicator.off .dot {
+      background: var(--text-muted); box-shadow: none; animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .btn:hover { background: var(--border); }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: #79b8ff; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 24px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .tab:hover { color: var(--text); }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    .tab .badge {
+      background: var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    /* Content */
+    .content {
+      padding: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* Stats Row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .stat-card .label {
+      font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .stat-card .value {
+      font-size: 28px; font-weight: 700; color: var(--text);
+    }
+
+    .stat-card .meta {
+      font-size: 12px; color: var(--text-muted); margin-top: 4px;
+    }
+
+    /* Search */
+    .search-box {
+      display: flex; gap: 12px; margin-bottom: 20px;
+    }
+
+    .search-input {
+      flex: 1;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus { border-color: var(--accent); }
+
+    .search-input::placeholder { color: var(--text-muted); }
+
+    /* Filters */
+    .filters {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;
+    }
+
+    .filter-pill {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-pill:hover { color: var(--text); border-color: var(--text-muted); }
+
+    .filter-pill.active {
+      background: var(--accent-glow);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Memory Cards */
+    .memory-list {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .memory-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      transition: border-color 0.15s, transform 0.1s;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .memory-card:hover {
+      border-color: var(--accent);
+      transform: translateX(4px);
+    }
+
+    .memory-card .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .memory-card .tags {
+      display: flex; gap: 6px;
+    }
+
+    .tag {
+      font-size: 11px; font-weight: 600; padding: 2px 8px;
+      border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+
+    .tag-type-style { background: rgba(88,166,255,0.12); color: var(--manual); }
+    .tag-type-architecture { background: rgba(163,113,247,0.12); color: var(--semantic); }
+    .tag-type-bugfix { background: rgba(248,81,73,0.12); color: var(--danger); }
+    .tag-type-api_pattern { background: rgba(63,185,80,0.12); color: var(--success); }
+    .tag-type-preference { background: rgba(240,136,62,0.12); color: var(--preference); }
+    .tag-type-general { background: rgba(139,148,158,0.12); color: var(--text-muted); }
+
+    .tag-scope-user { background: rgba(88,166,255,0.08); color: var(--manual); }
+    .tag-scope-project { background: rgba(240,136,62,0.08); color: var(--preference); }
+    .tag-scope-org { background: rgba(63,185,80,0.08); color: var(--success); }
+    .tag-scope-strategy { background: rgba(163,113,247,0.08); color: var(--semantic); }
+
+    .memory-card .content-text {
+      font-size: 14px; line-height: 1.6; color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .memory-card .card-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    .memory-card .score {
+      font-family: var(--font-mono);
+      font-size: 12px; font-weight: 600;
+      padding: 2px 8px; border-radius: 4px;
+    }
+
+    .score-high { background: rgba(63,185,80,0.12); color: var(--success); }
+    .score-mid { background: rgba(210,153,34,0.12); color: var(--warning); }
+    .score-low { background: rgba(139,148,158,0.12); color: var(--text-muted); }
+
+    /* Live Feed */
+    .feed {
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .feed-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .feed-item .icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+
+    .feed-item .body { flex: 1; }
+    .feed-item .body .text { font-size: 13px; color: var(--text); }
+    .feed-item .body .meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Profile */
+    .profile-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .profile-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .profile-card h3 {
+      font-size: 14px; font-weight: 600;
+      margin-bottom: 16px; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .pref-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pref-item:last-child { border-bottom: none; }
+
+    .pref-item .bullet {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); margin-top: 6px; flex-shrink: 0;
+    }
+
+    .pref-item .text { font-size: 13px; color: var(--text); }
+
+    .pref-item .source {
+      font-size: 11px; color: var(--text-muted); margin-top: 2px;
+    }
+
+    .lang-grid {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+
+    .lang-tag {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .lang-tag .count {
+      background: var(--accent-glow);
+      color: var(--accent);
+      font-size: 11px; font-weight: 600;
+      padding: 1px 7px; border-radius: 10px;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center; padding: 60px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+    .empty-state h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); }
+    .empty-state p { font-size: 13px; max-width: 400px; margin: 0 auto; }
+
+    /* Loading */
+    .loading {
+      text-align: center; padding: 40px;
+      color: var(--text-muted);
+    }
+
+    .spinner {
+      width: 24px; height: 24px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+  </style>
 </head>
 <body>
 
-<div class="app-container">
-  
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo-icon">🧠</div>
-      <div class="logo-text">
-        <div class="logo-title">Org Memory</div>
-        <div class="logo-sub">Observability</div>
+  <header class="header">
+    <div class="header-brand">
+      <div class="logo">&#128065;</div>
+      <div>
+        <h1>Memory Lens</h1>
+        <div class="subtitle">See what your AI knows</div>
       </div>
     </div>
-    
-    <nav class="sidebar-nav">
-      <div class="nav-section">Insights</div>
-      <a class="nav-item active" data-view="analytics" onclick="switchView('analytics')">
-        <span class="nav-icon">📊</span> Manager Analytics
-      </a>
-      
-      <div class="nav-section">Memory Types</div>
-      <a class="nav-item" data-view="knowledge" onclick="switchView('knowledge')">
-        <span class="nav-icon">📚</span> Knowledge Base (Semantic)
-      </a>
-      <a class="nav-item" data-view="experience" onclick="switchView('experience')">
-        <span class="nav-icon">⏱️</span> Experience Log (Episodic)
-      </a>
-      
-      <div class="nav-section">Administration</div>
-      <a class="nav-item" data-view="raw-data" onclick="switchView('raw-data')">
-        <span class="nav-icon">🗄️</span> Raw Data Explorer
-      </a>
-      <a class="nav-item" data-view="system" onclick="switchView('system')">
-        <span class="nav-icon">⚙️</span> System Status
-      </a>
-    </nav>
-    
-    <div class="sidebar-footer">
-      <button class="btn-refresh" id="refreshBtn" onclick="loadAllData()">
-        <svg id="refreshIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <div class="header-actions">
+      <div class="live-indicator" id="liveToggle" onclick="toggleLive()">
+        <div class="dot"></div>
+        <span id="liveText">Live</span>
+      </div>
+      <button class="btn" onclick="loadAllData()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
-        Sync Data
+        Refresh
       </button>
     </div>
-  </aside>
+  </header>
 
-  <!-- Main Content Area -->
-  <main class="main-content">
-    
-    <!-- View: Analytics -->
-    <div class="view-panel active" id="view-analytics">
-      <header class="view-header">
-        <h1>Manager Analytics</h1>
-        <p>High-level KPIs for knowledge growth and agent alignment.</p>
-      </header>
-      
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-label">Knowledge Growth (This Week)</div>
-          <div class="kpi-value" id="kpi-growth">+0</div>
-          <div class="kpi-trend">New extracted facts</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Total Semantic Facts</div>
-          <div class="kpi-value" id="kpi-semantic">0</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">User Preferences</div>
-          <div class="kpi-value" id="kpi-prefs">0</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Org-Shared Patterns</div>
-          <div class="kpi-value" id="kpi-shared">0</div>
-        </div>
-      </div>
-      
-      <div class="charts-grid">
-        <div class="chart-card">
-          <h3>Knowledge Accumulation Rate</h3>
-          <canvas id="accumulationChart"></canvas>
-        </div>
-        <div class="chart-card">
-          <h3>Memory Scope Distribution</h3>
-          <div class="donut-wrap"><canvas id="scopeChart"></canvas></div>
-        </div>
-      </div>
-
-      <div class="chart-card" style="margin-top:24px">
-        <h3>Top Insights (Highest Relevance Scores)</h3>
-        <div id="topInsights" style="padding:12px 0">
-          <div style="color:#8b949e">Loading...</div>
-        </div>
-      </div>
+  <nav class="tabs">
+    <div class="tab active" data-view="now" onclick="switchTab('now')">
+      <span>Now</span>
+      <span class="badge" id="badge-now">0</span>
     </div>
+    <div class="tab" data-view="explore" onclick="switchTab('explore')">
+      <span>Explore</span>
+    </div>
+    <div class="tab" data-view="profile" onclick="switchTab('profile')">
+      <span>Profile</span>
+    </div>
+  </nav>
 
-    <!-- View: Knowledge Base (Semantic) -->
-    <div class="view-panel" id="view-knowledge">
-      <header class="view-header">
-        <h1>Knowledge Base</h1>
-        <p>The agent's "World View". Extracted semantic facts, rules, and preferences.</p>
-      </header>
-      
-      <div class="split-view">
-        <div class="split-sidebar">
-          <h3>Categories</h3>
-          <ul class="category-list">
-            <li class="cat-item active" onclick="filterKnowledge('all', this)">All Knowledge <span class="cat-count" id="cat-all">0</span></li>
-            <li class="cat-item" onclick="filterKnowledge('semantic', this)">🧠 Core Facts <span class="cat-count" id="cat-semantic">0</span></li>
-            <li class="cat-item" onclick="filterKnowledge('preference', this)">👤 User Preferences <span class="cat-count" id="cat-prefs">0</span></li>
-            <li class="cat-item" onclick="filterKnowledge('summary', this)">📝 Session Summaries <span class="cat-count" id="cat-summary">0</span></li>
-            <li class="cat-item" onclick="filterKnowledge('manual', this)">✍️ Manual Rules <span class="cat-count" id="cat-manual">0</span></li>
-          </ul>
+  <main class="content">
+
+    <!-- View: Now -->
+    <div class="view active" id="view-now">
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="label">Total Memories</div>
+          <div class="value" id="stat-total">-</div>
+          <div class="meta">All time</div>
         </div>
-        <div class="split-content">
-          <div class="search-bar">
-            <input type="text" id="knowledgeSearch" placeholder="Search knowledge base..." oninput="filterKnowledgeContent()" />
+        <div class="stat-card">
+          <div class="label">Auto-Extracted</div>
+          <div class="value" id="stat-auto">-</div>
+          <div class="meta">By AgentCore strategies</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">This Session</div>
+          <div class="value" id="stat-session">-</div>
+          <div class="meta" id="stat-session-meta">Events recorded</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Top Score</div>
+          <div class="value" id="stat-topscore">-</div>
+          <div class="meta">Highest relevance</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div>
+          <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+            Recently Learned
+          </h3>
+          <div class="memory-list" id="now-recent">
+            <div class="loading"><div class="spinner"></div>Loading memories...</div>
           </div>
-          <div class="knowledge-grid" id="knowledge-grid">
-            <!-- Knowledge cards go here -->
+        </div>
+        <div>
+          <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+            Live Feed
+          </h3>
+          <div class="feed" id="now-feed">
+            <div class="loading"><div class="spinner"></div>Loading feed...</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- View: Experience Log (Episodic) -->
-    <div class="view-panel" id="view-experience">
-      <header class="view-header">
-        <h1>Experience Log</h1>
-        <p>Episodic memory timeline. Trace interactions and see where semantic knowledge was distilled.</p>
-      </header>
-      
-      <div class="experience-layout">
-        <div class="timeline-container" id="timeline-feed">
-          <!-- Chat/Event log goes here -->
-        </div>
-        <div class="context-gauge-panel">
-          <h3>Current Session Context</h3>
-          <div class="gauge-container">
-            <div class="gauge-bar">
-              <div class="gauge-fill" id="gauge-events" style="width: 50%;"></div>
-            </div>
-            <div class="gauge-labels">
-              <span>Short-term Events: <strong id="gauge-evt-val">0</strong></span>
-            </div>
-          </div>
-          <div class="extraction-info">
-            <p><strong>Distillation Process:</strong></p>
-            <p class="text-sm">AgentCore runs in the background. When enough episodic context builds up, the <code>Semantic</code> and <code>UserPreference</code> strategies extract core facts into the Knowledge Base.</p>
-          </div>
+    <!-- View: Explore -->
+    <div class="view" id="view-explore">
+      <div class="search-box">
+        <input type="text" class="search-input" id="explore-search" placeholder="Search your memory... try: error handling, auth patterns, coding style" onkeydown="if(event.key==='Enter')doSearch()" />
+        <button class="btn btn-primary" onclick="doSearch()">Search</button>
+      </div>
+
+      <div class="filters">
+        <span style="font-size: 12px; color: var(--text-muted); margin-right: 4px;">Scope:</span>
+        <div class="filter-pill active" data-filter="scope" data-value="all" onclick="setFilter('scope','all')">All</div>
+        <div class="filter-pill" data-filter="scope" data-value="user" onclick="setFilter('scope','user')">Personal</div>
+        <div class="filter-pill" data-filter="scope" data-value="project" onclick="setFilter('scope','project')">Project</div>
+        <div class="filter-pill" data-filter="scope" data-value="org" onclick="setFilter('scope','org')">Org</div>
+        <div class="filter-pill" data-filter="scope" data-value="strategy" onclick="setFilter('scope','strategy')">Auto-Extracted</div>
+      </div>
+
+      <div class="filters">
+        <span style="font-size: 12px; color: var(--text-muted); margin-right: 4px;">Type:</span>
+        <div class="filter-pill active" data-filter="type" data-value="all" onclick="setFilter('type','all')">All</div>
+        <div class="filter-pill" data-filter="type" data-value="style" onclick="setFilter('type','style')">Style</div>
+        <div class="filter-pill" data-filter="type" data-value="architecture" onclick="setFilter('type','architecture')">Architecture</div>
+        <div class="filter-pill" data-filter="type" data-value="bugfix" onclick="setFilter('type','bugfix')">Bugfix</div>
+        <div class="filter-pill" data-filter="type" data-value="api_pattern" onclick="setFilter('type','api_pattern')">API Pattern</div>
+        <div class="filter-pill" data-filter="type" data-value="preference" onclick="setFilter('type','preference')">Preference</div>
+      </div>
+
+      <div class="memory-list" id="explore-results">
+        <div class="empty-state">
+          <div class="icon">&#128269;</div>
+          <h3>Search your memory</h3>
+          <p>Type a query above to find relevant memories using semantic search. Results are ranked by relevance score.</p>
         </div>
       </div>
     </div>
 
-    <!-- View: Raw Data Explorer -->
-    <div class="view-panel" id="view-raw-data">
-      <header class="view-header">
-        <h1>Raw Data Explorer</h1>
-        <p>A tabular view of all stored long-term memory records for advanced querying.</p>
-      </header>
-      
-      <div class="table-toolbar">
-        <input type="text" id="rawSearch" placeholder="Filter records..." oninput="renderRawTable()" />
-        <select id="rawScopeFilter" onchange="renderRawTable()">
-          <option value="all">All Scopes</option>
-          <option value="user">User</option>
-          <option value="project">Project</option>
-          <option value="org">Org</option>
-          <option value="strategy">Auto-Extracted</option>
-        </select>
+    <!-- View: Profile -->
+    <div class="view" id="view-profile">
+      <div class="profile-grid">
+        <div class="profile-card">
+          <h3><span style="font-size: 16px;">&#129504;</span> What the AI knows about you</h3>
+          <div id="profile-preferences">
+            <div class="loading"><div class="spinner"></div>Analyzing preferences...</div>
+          </div>
+        </div>
+        <div class="profile-card">
+          <h3><span style="font-size: 16px;">&#128187;</span> Your Tech Stack</h3>
+          <div class="lang-grid" id="profile-languages">
+            <div class="loading"><div class="spinner"></div>Loading...</div>
+          </div>
+        </div>
+        <div class="profile-card">
+          <h3><span style="font-size: 16px;">&#128202;</span> Contribution Stats</h3>
+          <div id="profile-stats">
+            <div class="loading"><div class="spinner"></div>Loading stats...</div>
+          </div>
+        </div>
+        <div class="profile-card">
+          <h3><span style="font-size: 16px;">&#128230;</span> Active Projects</h3>
+          <div id="profile-projects">
+            <div class="loading"><div class="spinner"></div>Loading projects...</div>
+          </div>
+        </div>
       </div>
-      
-      <div class="table-container">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Scope</th>
-              <th>Content Snippet</th>
-              <th>Source</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody id="raw-table-body">
-            <!-- Rows -->
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- View: System Status -->
-    <div class="view-panel" id="view-system">
-      <header class="view-header">
-        <h1>System Status</h1>
-        <p>AgentCore diagnostics and configuration.</p>
-      </header>
-      <div class="system-grid" id="system-grid"></div>
     </div>
 
   </main>
-</div>
 
-<!-- Loading overlay -->
-<div class="loading-overlay" id="loading">
-  <div class="spinner"></div>
-  <span>Fetching Memory Graph…</span>
-</div>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
