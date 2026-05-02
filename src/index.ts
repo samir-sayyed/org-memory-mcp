@@ -83,7 +83,7 @@ class OrgMemoryMcpServer {
     this.server = new Server(
       {
         name: 'org-memory-mcp',
-        version: '1.1.0',
+        version: '1.1.1',
       },
       {
         capabilities: {
