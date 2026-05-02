@@ -50,7 +50,9 @@ When developers use AI coding agents, valuable knowledge like architecture decis
 
 ## Architecture
 
-```
+![High-Level Architecture](assets/high_level_architecture_1777734613221.png)
+
+```text
 Cursor / Cline / Copilot
         │
         ▼
@@ -75,6 +77,8 @@ AWS Bedrock AgentCore Memory
 
 ### How Memory Works
 
+![Data Flow Sequence](assets/data_flow_sequence_1777734643975.png)
+
 1. **save_conversation** → Stores conversation as short-term events via `CreateEvent`
 2. **AgentCore auto-extracts** → Built-in strategies run in the background, extracting facts, preferences, and summaries into long-term memory
 3. **retrieve_context** → Queries both short-term session history and long-term extracted insights
@@ -83,7 +87,9 @@ AWS Bedrock AgentCore Memory
 
 ### Namespace Hierarchy
 
-```
+![Namespace Hierarchy](assets/namespace_hierarchy_1777734660516.png)
+
+```text
 /org/{orgId}/user/{actorId}/      → Actor-scoped developer memories (manual)
 /org/{orgId}/project/{projectId}/ → Project-scoped team memories (manual)
 /org/{orgId}/shared/              → Org-wide approved patterns (manual)
@@ -91,6 +97,8 @@ AWS Bedrock AgentCore Memory
 ```
 
 ## Available Tools
+
+![Tool Categorization](assets/tool_categorization_1777734628381.png)
 
 | Tool | Type | Description |
 |------|------|-------------|
