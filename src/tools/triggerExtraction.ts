@@ -1,8 +1,9 @@
 /**
- * trigger_extraction — Force immediate processing of short-term events into long-term memory.
+ * trigger_extraction — Request on-demand memory extraction.
  *
- * AgentCore auto-extracts insights in background, but this tool triggers
- * an on-demand extraction job. Useful when you want insights NOW.
+ * AgentCore auto-extracts insights in the background via configured strategies.
+ * This tool attempts to start an extraction job for immediate processing.
+ * Requires pre-configured extraction job templates on your Memory resource.
  */
 
 import { BedrockMemoryClient } from '../aws/bedrockAgentCore.js';
@@ -25,7 +26,7 @@ export async function handleTriggerExtraction(
             {
               success: true,
               jobId,
-              message: 'Extraction job started. AgentCore is processing short-term events into long-term memory. Check list_extraction_jobs for status.',
+              message: 'Extraction job started. AgentCore will process short-term events into long-term memory.',
             },
             null,
             2
@@ -35,7 +36,21 @@ export async function handleTriggerExtraction(
     };
   } catch (error: any) {
     return {
-      content: [{ type: 'text', text: `Error triggering extraction: ${error.message}` }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              success: false,
+              message: 'On-demand extraction requires a pre-configured extraction job template.',
+              detail: error.message,
+              note: 'Auto-extraction still runs in the background via your configured strategies.',
+            },
+            null,
+            2
+          ),
+        },
+      ],
       isError: true,
     };
   }
