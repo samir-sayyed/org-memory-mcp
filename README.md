@@ -50,7 +50,7 @@ When developers use AI coding agents, valuable knowledge like architecture decis
 
 ## Architecture
 
-![High-Level Architecture](assets/high_level_architecture_1777734613221.png)
+![High-Level Architecture](diagrams/system-architecture.png)
 
 ```text
 Cursor / Cline / Copilot
@@ -77,7 +77,7 @@ AWS Bedrock AgentCore Memory
 
 ### How Memory Works
 
-![Data Flow Sequence](assets/data_flow_sequence_1777734643975.png)
+![Data Flow Sequence](diagrams/data-flow-memory.png)
 
 1. **save_conversation** → Stores conversation as short-term events via `CreateEvent`
 2. **AgentCore auto-extracts** → Built-in strategies run in the background, extracting facts, preferences, and summaries into long-term memory
@@ -87,7 +87,7 @@ AWS Bedrock AgentCore Memory
 
 ### Namespace Hierarchy
 
-![Namespace Hierarchy](assets/namespace_hierarchy_1777734660516.png)
+The data-flow diagram above includes the full namespace hierarchy. Key paths:
 
 ```text
 /org/{orgId}/user/{actorId}/      → Actor-scoped developer memories (manual)
@@ -98,7 +98,7 @@ AWS Bedrock AgentCore Memory
 
 ## Available Tools
 
-![Tool Categorization](assets/tool_categorization_1777734628381.png)
+![Tool Categorization](diagrams/tool-call-flow.png)
 
 | Tool | Type | Description |
 |------|------|-------------|
